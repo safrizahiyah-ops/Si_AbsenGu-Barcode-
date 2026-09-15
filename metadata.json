@@ -1,0 +1,9 @@
+{
+  "name": "SISTEM ABSENSI GURU MA DARUL MAHFUDZ",
+  "description": "Aplikasi absensi guru berbasis web modern, responsif, dan mudah digunakan oleh guru piket di MA/MTs Darul Mahfudz untuk pencatatan kehadiran setiap jam pelajaran.",
+  "requestFramePermissions": [
+    "camera"
+  ],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
+
