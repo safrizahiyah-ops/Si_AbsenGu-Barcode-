@@ -4,6 +4,7 @@ import {
   formatIndonesianDate,
   formatIndonesianDateShort,
   getTodayDateString,
+  parsePeriodString,
   ATTENDANCE_STATUS_CONFIG,
 } from '../constants/schedule';
 import {
@@ -29,12 +30,16 @@ export const DailyReportView: React.FC = () => {
 
   // Filter records for selected date and sort by period
   const dailyRecords = useMemo(() => {
-    const periodOrder: Record<string, number> = {
-      I: 1, II: 2, III: 3, IV: 4, V: 5, VI: 6, VII: 7, VIII: 8, IX: 9,
+    const getPeriodOrder = (p: string) => {
+      const range = parsePeriodString(p);
+      const periodOrder: Record<string, number> = {
+        I: 1, II: 2, III: 3, IV: 4, V: 5, VI: 6, VII: 7, VIII: 8, IX: 9,
+      };
+      return periodOrder[range.start] || 0;
     };
     return records
       .filter((r) => r.date === selectedDate)
-      .sort((a, b) => (periodOrder[a.period] || 0) - (periodOrder[b.period] || 0));
+      .sort((a, b) => getPeriodOrder(a.period) - getPeriodOrder(b.period));
   }, [records, selectedDate]);
 
   // Statistics for this day

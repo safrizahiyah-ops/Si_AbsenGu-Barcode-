@@ -6,6 +6,8 @@ import {
   ATTENDANCE_STATUS_CONFIG,
   PERIOD_IDS,
   getTodayDateString,
+  parsePeriodString,
+  isPeriodInRange,
 } from '../constants/schedule';
 import { AttendanceStatus } from '../types';
 import {
@@ -87,7 +89,11 @@ export const DashboardView: React.FC = () => {
   // Distribution per period (Jam I to Jam IX) for today
   const periodDistribution = useMemo(() => {
     return PERIOD_IDS.map((pid) => {
-      const recs = todayRecords.filter((r) => r.period === pid);
+      const recs = todayRecords.filter((r) => {
+        if (r.period === pid) return true;
+        const range = parsePeriodString(r.period);
+        return isPeriodInRange(pid, range.start, range.end);
+      });
       const hadir = recs.filter(
         (r) => r.status === 'HADIR' || r.status === 'TERLAMBAT' || r.status === 'DINAS/TUGAS'
       ).length;

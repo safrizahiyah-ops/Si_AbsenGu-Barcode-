@@ -3,6 +3,9 @@ import { useAttendance } from '../context/AttendanceContext';
 import { AttendanceRecord, AttendanceStatus, PeriodId } from '../types';
 import {
   PERIOD_IDS,
+  MANUAL_PERIOD_CHOICES,
+  parsePeriodString,
+  isPeriodInRange,
   ATTENDANCE_STATUS_CONFIG,
   formatIndonesianDateShort,
 } from '../constants/schedule';
@@ -72,8 +75,13 @@ export const AttendanceListView: React.FC = () => {
         }
 
         // Filter Period
-        if (filterPeriod && rec.period !== filterPeriod) {
-          return false;
+        if (filterPeriod) {
+          if (rec.period !== filterPeriod) {
+            const range = parsePeriodString(rec.period);
+            if (!isPeriodInRange(filterPeriod as PeriodId, range.start, range.end)) {
+              return false;
+            }
+          }
         }
 
         // Filter Status
@@ -89,21 +97,23 @@ export const AttendanceListView: React.FC = () => {
         return true;
       })
       .sort((a, b) => {
+        const getPeriodOrder = (p: string) => {
+          const range = parsePeriodString(p);
+          const periodOrder: Record<string, number> = {
+            I: 1, II: 2, III: 3, IV: 4, V: 5, VI: 6, VII: 7, VIII: 8, IX: 9
+          };
+          return periodOrder[range.start] || 0;
+        };
+
         let comparison = 0;
         if (sortField === 'date') {
           comparison = a.date.localeCompare(b.date);
           if (comparison === 0) {
             // Secondary sort by period
-            const periodOrder: Record<string, number> = {
-              I: 1, II: 2, III: 3, IV: 4, V: 5, VI: 6, VII: 7, VIII: 8, IX: 9
-            };
-            comparison = (periodOrder[a.period] || 0) - (periodOrder[b.period] || 0);
+            comparison = getPeriodOrder(a.period) - getPeriodOrder(b.period);
           }
         } else if (sortField === 'period') {
-          const periodOrder: Record<string, number> = {
-            I: 1, II: 2, III: 3, IV: 4, V: 5, VI: 6, VII: 7, VIII: 8, IX: 9
-          };
-          comparison = (periodOrder[a.period] || 0) - (periodOrder[b.period] || 0);
+          comparison = getPeriodOrder(a.period) - getPeriodOrder(b.period);
         } else if (sortField === 'teacherName') {
           comparison = a.teacherName.localeCompare(b.teacherName);
         } else if (sortField === 'status') {
@@ -290,9 +300,9 @@ export const AttendanceListView: React.FC = () => {
               className="w-full px-2.5 py-1.5 rounded-lg border border-slate-200 text-xs font-medium focus:ring-emerald-500 focus:border-emerald-500 bg-white"
             >
               <option value="">Semua Jam (I - IX)</option>
-              {PERIOD_IDS.map((p) => (
-                <option key={p} value={p}>
-                  Jam {p}
+              {MANUAL_PERIOD_CHOICES.map((choice) => (
+                <option key={choice.id} value={choice.id}>
+                  {choice.label}
                 </option>
               ))}
             </select>

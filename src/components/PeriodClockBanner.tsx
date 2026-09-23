@@ -80,7 +80,7 @@ export const PeriodClockBanner: React.FC = () => {
             <div className="flex items-center gap-2">
               <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-950/40 text-emerald-200 border border-emerald-500/30">
                 <Clock className="w-3.5 h-3.5 text-emerald-300" />
-                Sistem Pergantian Jam Otomatis
+                Jadwal Pelajaran Madrasah (Jam I s.d IX)
               </span>
               {isSimulating && (
                 <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold bg-amber-400 text-amber-950">
@@ -143,7 +143,7 @@ export const PeriodClockBanner: React.FC = () => {
               >
                 <option value="live">Waktu Real-time</option>
                 <option value="07:45">07.45 (Jam I)</option>
-                <option value="08:15">08.15 (Jam II)</option>
+                <option value="08:30">08.30 (Jam II)</option>
                 <option value="09:00">09.00 (Jam III)</option>
                 <option value="09:40">09.40 (Jam IV)</option>
                 <option value="10:15">10.15 (Istirahat 1)</option>

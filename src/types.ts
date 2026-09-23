@@ -23,8 +23,10 @@ export interface PeriodSlot {
 export interface AttendanceRecord {
   id: string;
   date: string; // YYYY-MM-DD
-  period: PeriodId;
-  timeSlot: string; // e.g. "07.30 – 08.10"
+  period: string; // e.g. "I", "II", or "I - II"
+  startPeriod?: PeriodId;
+  endPeriod?: PeriodId;
+  timeSlot: string; // e.g. "07.30 – 08.20" or "07.30 – 08.50"
   teacherId: string;
   teacherName: string;
   subject: string;

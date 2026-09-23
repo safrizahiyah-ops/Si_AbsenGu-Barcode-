@@ -4,12 +4,14 @@ import { PeriodId, AttendanceStatus } from '../types';
 import {
   VALID_ATTENDANCE_PERIODS,
   PERIOD_IDS,
+  MANUAL_PERIOD_CHOICES,
+  getPeriodRangeDetails,
+  parsePeriodString,
   ATTENDANCE_STATUS_CONFIG,
-  getCurrentPeriodState,
   getTodayDateString,
   formatIndonesianDateShort,
 } from '../constants/schedule';
-import { X, Search, Check, AlertTriangle, User, BookOpen, School, Clock, Calendar, CheckCircle2, Scan } from 'lucide-react';
+import { X, Search, Check, AlertTriangle, User, BookOpen, School, Clock, Calendar, CheckCircle2, Scan, ArrowRight } from 'lucide-react';
 
 export const AttendanceModal: React.FC = () => {
   const {
@@ -29,7 +31,8 @@ export const AttendanceModal: React.FC = () => {
 
   // Form states
   const [date, setDate] = useState<string>(getTodayDateString());
-  const [period, setPeriod] = useState<PeriodId>('I');
+  const [startPeriod, setStartPeriod] = useState<PeriodId>('I');
+  const [endPeriod, setEndPeriod] = useState<PeriodId>('I');
   const [selectedTeacherId, setSelectedTeacherId] = useState<string>('');
   const [teacherSearch, setTeacherSearch] = useState<string>('');
   const [isTeacherDropdownOpen, setIsTeacherDropdownOpen] = useState<boolean>(false);
@@ -57,7 +60,14 @@ export const AttendanceModal: React.FC = () => {
 
         if (editingRecord) {
           setDate(editingRecord.date);
-          setPeriod(editingRecord.period);
+          if (editingRecord.startPeriod && editingRecord.endPeriod) {
+            setStartPeriod(editingRecord.startPeriod);
+            setEndPeriod(editingRecord.endPeriod);
+          } else {
+            const parsed = parsePeriodString(editingRecord.period);
+            setStartPeriod(parsed.start);
+            setEndPeriod(parsed.end);
+          }
           setSelectedTeacherId(editingRecord.teacherId);
           setTeacherSearch(editingRecord.teacherName);
           setSubject(editingRecord.subject);
@@ -69,18 +79,16 @@ export const AttendanceModal: React.FC = () => {
           // Preset date
           setDate(getTodayDateString());
 
-          // Check if session storage has target period or check current real-time active period
+          // Check if session storage has target period
           const storedTarget = sessionStorage.getItem('dm_target_period');
           if (storedTarget && PERIOD_IDS.includes(storedTarget as PeriodId)) {
-            setPeriod(storedTarget as PeriodId);
+            setStartPeriod(storedTarget as PeriodId);
+            setEndPeriod(storedTarget as PeriodId);
             sessionStorage.removeItem('dm_target_period');
           } else {
-            const currentState = getCurrentPeriodState(new Date());
-            if (currentState.currentSlot && !currentState.isBreak) {
-              setPeriod(currentState.currentSlot.id as PeriodId);
-            } else {
-              setPeriod('I');
-            }
+            // Default manual choice
+            setStartPeriod('I');
+            setEndPeriod('I');
           }
 
           // Reset inputs for new attendance entry
@@ -96,15 +104,30 @@ export const AttendanceModal: React.FC = () => {
     }
     prevModalOpenRef.current = isFormModalOpen;
     prevEditingIdRef.current = editingRecord ? editingRecord.id : null;
-  }, [isFormModalOpen, editingRecord]);
+  }, [isFormModalOpen, editingRecord, classes, settings.currentPicketTeacher]);
 
-  // Selected Period details
-  const selectedPeriodSlot = useMemo(() => {
-    return (
-      VALID_ATTENDANCE_PERIODS.find((p) => p.id === period) ||
-      VALID_ATTENDANCE_PERIODS[0]
-    );
-  }, [period]);
+  // Selected Manual Period Range details
+  const periodRange = useMemo(() => {
+    return getPeriodRangeDetails(startPeriod, endPeriod);
+  }, [startPeriod, endPeriod]);
+
+  const handleStartPeriodChange = (val: PeriodId) => {
+    setStartPeriod(val);
+    const startIdx = PERIOD_IDS.indexOf(val);
+    const endIdx = PERIOD_IDS.indexOf(endPeriod);
+    if (endIdx < startIdx) {
+      setEndPeriod(val);
+    }
+  };
+
+  const handleEndPeriodChange = (val: PeriodId) => {
+    const startIdx = PERIOD_IDS.indexOf(startPeriod);
+    const endIdx = PERIOD_IDS.indexOf(val);
+    if (endIdx < startIdx) {
+      setStartPeriod(val);
+    }
+    setEndPeriod(val);
+  };
 
   // Filter teachers for dropdown search
   const filteredTeachers = useMemo(() => {
@@ -160,8 +183,10 @@ export const AttendanceModal: React.FC = () => {
     if (editingRecord) {
       const result = updateAttendanceRecord(editingRecord.id, {
         date,
-        period,
-        timeSlot: selectedPeriodSlot.timeSlotString,
+        period: periodRange.periodString,
+        startPeriod,
+        endPeriod,
+        timeSlot: periodRange.timeSlotString,
         teacherId: selectedTeacherId || `custom-${Date.now()}`,
         teacherName,
         subject: subject.trim(),
@@ -179,8 +204,10 @@ export const AttendanceModal: React.FC = () => {
     } else {
       const result = addAttendanceRecord({
         date,
-        period,
-        timeSlot: selectedPeriodSlot.timeSlotString,
+        period: periodRange.periodString,
+        startPeriod,
+        endPeriod,
+        timeSlot: periodRange.timeSlotString,
         teacherId: selectedTeacherId || `custom-${Date.now()}`,
         teacherName,
         subject: subject.trim(),
@@ -246,53 +273,89 @@ export const AttendanceModal: React.FC = () => {
             </div>
           )}
 
-          {/* Row 1: Tanggal & Jam Pelajaran */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            {/* 1. Tanggal */}
-            <div>
-              <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
-                1. Tanggal Absensi
-              </label>
-              <div className="relative">
-                <input
-                  id="input-attendance-date"
-                  type="date"
-                  required
-                  value={date}
-                  onChange={(e) => setDate(e.target.value)}
-                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 text-sm font-medium bg-slate-50/50"
-                />
-              </div>
-              <p className="text-[11px] text-slate-500 mt-1">
-                {formatIndonesianDateShort(date)}
-              </p>
+          {/* Row 1: Tanggal Absensi */}
+          <div>
+            <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
+              1. Tanggal Absensi
+            </label>
+            <div className="relative">
+              <input
+                id="input-attendance-date"
+                type="date"
+                required
+                value={date}
+                onChange={(e) => setDate(e.target.value)}
+                className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 text-sm font-medium bg-slate-50/50"
+              />
+            </div>
+            <p className="text-[11px] text-slate-500 mt-1">
+              {formatIndonesianDateShort(date)}
+            </p>
+          </div>
+
+          {/* Row 2: Jam Pelajaran (Manual: Mulai Jam & Sampai Jam) */}
+          <div className="bg-slate-50/80 rounded-2xl border border-slate-200 p-3.5 sm:p-4 space-y-3">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-bold text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
+                <Clock className="w-4 h-4 text-emerald-700" />
+                2. Jam Pelajaran (Fitur Manual)
+              </span>
+              <span className="text-[10px] font-bold text-emerald-800 bg-emerald-100 px-2 py-0.5 rounded-full border border-emerald-200">
+                Pilihan Manual
+              </span>
             </div>
 
-            {/* 2. Jam Pelajaran (I - IX) */}
-            <div>
-              <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
-                2. Jam Pelajaran
-              </label>
-              <div className="relative">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              {/* Kolom 1: Mulai Jam */}
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1.5 flex items-center gap-1">
+                  <span>Mulai Jam:</span>
+                </label>
                 <select
-                  id="select-attendance-period"
-                  value={period}
-                  onChange={(e) => setPeriod(e.target.value as PeriodId)}
-                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 text-sm font-bold bg-white"
+                  id="select-mulai-jam"
+                  value={startPeriod}
+                  onChange={(e) => handleStartPeriodChange(e.target.value as PeriodId)}
+                  className="w-full px-3 py-2.5 rounded-xl border border-slate-300 focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 text-xs sm:text-sm font-bold bg-white"
                 >
-                  {VALID_ATTENDANCE_PERIODS.map((slot) => (
-                    <option key={slot.id} value={slot.id}>
-                      Jam {slot.code} ({slot.timeSlotString})
+                  {MANUAL_PERIOD_CHOICES.map((choice) => (
+                    <option key={choice.id} value={choice.id}>
+                      {choice.label}
                     </option>
                   ))}
                 </select>
               </div>
 
-              {/* Automatic Time Slot display */}
-              <div className="mt-1.5 flex items-center gap-1.5 text-xs text-emerald-800 font-semibold bg-emerald-50 px-2.5 py-1 rounded-lg border border-emerald-200/80">
-                <Clock className="w-3.5 h-3.5 text-emerald-600" />
-                <span>Waktu Terjadwal: {selectedPeriodSlot.timeSlotString} WIB</span>
+              {/* Kolom 2: Sampai Jam */}
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1.5 flex items-center gap-1">
+                  <span>Sampai Jam:</span>
+                </label>
+                <select
+                  id="select-sampai-jam"
+                  value={endPeriod}
+                  onChange={(e) => handleEndPeriodChange(e.target.value as PeriodId)}
+                  className="w-full px-3 py-2.5 rounded-xl border border-slate-300 focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 text-xs sm:text-sm font-bold bg-white"
+                >
+                  {MANUAL_PERIOD_CHOICES.map((choice) => (
+                    <option key={choice.id} value={choice.id}>
+                      {choice.label}
+                    </option>
+                  ))}
+                </select>
               </div>
+            </div>
+
+            {/* Display Ringkasan Jam Manual */}
+            <div className="flex items-center justify-between flex-wrap gap-2 pt-1 border-t border-slate-200/70 text-xs">
+              <div className="flex items-center gap-2 text-emerald-900 font-semibold">
+                <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
+                <span>
+                  Waktu: <strong>Jam {periodRange.periodString}</strong> ({periodRange.timeSlotString} WIB)
+                </span>
+              </div>
+              <span className="text-[11px] font-bold text-slate-600 bg-white px-2.5 py-0.5 rounded-lg border border-slate-200">
+                {periodRange.durationPeriods} Jam Pelajaran
+              </span>
             </div>
           </div>
 

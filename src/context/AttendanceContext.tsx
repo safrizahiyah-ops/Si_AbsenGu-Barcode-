@@ -15,7 +15,11 @@ import {
   INITIAL_SUBJECTS,
   generateInitialAttendanceRecords,
 } from '../data/initialData';
-import { VALID_ATTENDANCE_PERIODS } from '../constants/schedule';
+import {
+  VALID_ATTENDANCE_PERIODS,
+  PERIOD_IDS,
+  parsePeriodString,
+} from '../constants/schedule';
 
 interface ToastState {
   id: number;
@@ -177,17 +181,31 @@ export const AttendanceProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     }, 4000);
   };
 
-  // Add Attendance with duplicate validation (same teacher, same period, same date)
+  // Add Attendance with duplicate validation (same teacher, overlapping period, same date)
   const addAttendanceRecord = (
     recordData: Omit<AttendanceRecord, 'id' | 'createdAt'>
   ): { success: boolean; error?: string } => {
-    const isDuplicate = records.some(
-      (r) =>
-        r.date === recordData.date &&
-        r.period === recordData.period &&
-        (r.teacherId === recordData.teacherId ||
-          r.teacherName.trim().toLowerCase() === recordData.teacherName.trim().toLowerCase())
-    );
+    const isDuplicate = records.some((r) => {
+      if (r.date !== recordData.date) return false;
+      const sameTeacher =
+        (recordData.teacherId && r.teacherId === recordData.teacherId) ||
+        r.teacherName.trim().toLowerCase() === recordData.teacherName.trim().toLowerCase();
+      if (!sameTeacher) return false;
+
+      if (r.period === recordData.period) return true;
+
+      const rRange = parsePeriodString(r.period);
+      const newRange = parsePeriodString(recordData.period);
+      const rStartIdx = PERIOD_IDS.indexOf(rRange.start);
+      const rEndIdx = PERIOD_IDS.indexOf(rRange.end);
+      const newStartIdx = PERIOD_IDS.indexOf(newRange.start);
+      const newEndIdx = PERIOD_IDS.indexOf(newRange.end);
+
+      if (rStartIdx !== -1 && rEndIdx !== -1 && newStartIdx !== -1 && newEndIdx !== -1) {
+        return Math.max(rStartIdx, newStartIdx) <= Math.min(rEndIdx, newEndIdx);
+      }
+      return false;
+    });
 
     if (isDuplicate) {
       const errorMsg = `Guru "${recordData.teacherName}" sudah tercatat pada Jam Pelajaran ${recordData.period} tanggal ${recordData.date}!`;
@@ -220,14 +238,28 @@ export const AttendanceProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   ): { success: boolean; error?: string } => {
     // Check if updating creates duplicate with ANOTHER record
     if (recordData.date && recordData.period && (recordData.teacherId || recordData.teacherName)) {
-      const isDuplicate = records.some(
-        (r) =>
-          r.id !== id &&
-          r.date === recordData.date &&
-          r.period === recordData.period &&
-          (r.teacherId === recordData.teacherId ||
-            r.teacherName.trim().toLowerCase() === recordData.teacherName?.trim().toLowerCase())
-      );
+      const isDuplicate = records.some((r) => {
+        if (r.id === id) return false;
+        if (r.date !== recordData.date) return false;
+        const sameTeacher =
+          (recordData.teacherId && r.teacherId === recordData.teacherId) ||
+          r.teacherName.trim().toLowerCase() === recordData.teacherName?.trim().toLowerCase();
+        if (!sameTeacher) return false;
+
+        if (r.period === recordData.period) return true;
+
+        const rRange = parsePeriodString(r.period);
+        const newRange = parsePeriodString(recordData.period);
+        const rStartIdx = PERIOD_IDS.indexOf(rRange.start);
+        const rEndIdx = PERIOD_IDS.indexOf(rRange.end);
+        const newStartIdx = PERIOD_IDS.indexOf(newRange.start);
+        const newEndIdx = PERIOD_IDS.indexOf(newRange.end);
+
+        if (rStartIdx !== -1 && rEndIdx !== -1 && newStartIdx !== -1 && newEndIdx !== -1) {
+          return Math.max(rStartIdx, newStartIdx) <= Math.min(rEndIdx, newEndIdx);
+        }
+        return false;
+      });
 
       if (isDuplicate) {
         const errorMsg = `Perubahan gagal: Guru sudah tercatat pada Jam ${recordData.period} tanggal ${recordData.date}!`;
