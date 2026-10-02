@@ -22,11 +22,14 @@ export interface WeeklyRecapRow {
   teacherName: string;
   hadir: number;
   terlambat: number;
+  terlambatMnt?: number;
   izin: number;
   sakit: number;
   dinas: number;
   tidakHadir: number;
   total: number;
+  totalMenit?: number;
+  jamEfektifMnt?: number;
   percentage: number;
 }
 
@@ -264,7 +267,7 @@ export function generateDailyRecapPdf(
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(9.5);
   doc.text(
-    `Tanggal: ${formattedDate}  |  Tahun Ajaran: ${settings.academicYear}  |  Semester: ${settings.semester}`,
+    `Tanggal: ${formattedDate}  |  Tahun Ajaran: ${settings.academicYear}  |  Semester: ${settings.semester}  |  1 Jam = ${settings.lessonDurationMinutes || 40} Menit`,
     148,
     38,
     { align: 'center' }
@@ -429,7 +432,11 @@ export function generateWeeklyReportPdf(
 
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(10);
-  doc.text(`Periode: ${formatIndonesianDateShort(startDate)} s.d. ${formatIndonesianDateShort(endDate)}`, 20, 40);
+  doc.text(
+    `Periode: ${formatIndonesianDateShort(startDate)} s.d. ${formatIndonesianDateShort(endDate)}  |  1 Jam Pelajaran = ${settings.lessonDurationMinutes || 40} Menit`,
+    20,
+    40
+  );
 
   const tableData = rows.map((r, i) => [
     i + 1,

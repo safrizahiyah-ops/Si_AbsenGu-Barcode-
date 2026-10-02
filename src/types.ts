@@ -90,6 +90,7 @@ export interface AppSettings {
   picketTeam?: string;
   academicYear: string;
   semester: 'Ganjil' | 'Genap';
+  lessonDurationMinutes: number; // 30, 35, 40, 45, 50 menit
 }
 
 export type ActiveTab =

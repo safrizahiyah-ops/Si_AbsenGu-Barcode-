@@ -86,6 +86,7 @@ interface AttendanceContextType {
   deletePeriodSlot: (id: string) => { success: boolean; error?: string };
   resetPeriodSlots: () => void;
   updateSettings: (newSettings: Partial<AppSettings>) => void;
+  syncAllPeriodSlotsDuration: (newDurationMinutes: number) => void;
   resetToSampleData: () => void;
   exportDataJson: () => void;
   importDataJson: (jsonString: string) => boolean;
@@ -157,7 +158,14 @@ export const AttendanceProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   const [settings, setSettings] = useState<AppSettings>(() => {
     try {
       const saved = localStorage.getItem(STORAGE_KEYS.SETTINGS);
-      if (saved) return JSON.parse(saved);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        return {
+          ...INITIAL_SETTINGS,
+          ...parsed,
+          lessonDurationMinutes: Number(parsed.lessonDurationMinutes) || 40,
+        };
+      }
     } catch {
       // ignore
     }
@@ -558,6 +566,33 @@ export const AttendanceProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     showToast('Pengaturan madrasah berhasil disimpan.', 'success');
   };
 
+  // Synchronize duration of all study period slots to the new duration, cascading cleanly
+  const syncAllPeriodSlotsDuration = (newDurationMinutes: number) => {
+    const validDur = Math.max(10, Math.min(120, newDurationMinutes));
+    if (periodSlots.length === 0) return;
+
+    const updated = [...periodSlots];
+    let prevEnd = updated[0].startTime;
+
+    for (let i = 0; i < updated.length; i++) {
+      const slot = { ...updated[i] };
+      const startMins = i === 0 ? parseTimeToMinutes(slot.startTime) : parseTimeToMinutes(prevEnd);
+      const currentSlotDuration = parseTimeToMinutes(slot.endTime) - parseTimeToMinutes(slot.startTime);
+      const slotDuration = slot.isBreak ? Math.max(10, currentSlotDuration) : validDur;
+
+      const endMins = startMins + slotDuration;
+      slot.startTime = minutesToTimeString(startMins);
+      slot.endTime = minutesToTimeString(endMins);
+      slot.timeSlotString = formatTimeSlotString(slot.startTime, slot.endTime);
+
+      updated[i] = slot;
+      prevEnd = slot.endTime;
+    }
+
+    setPeriodSlots(updated);
+    showToast(`Durasi seluruh jam pelajaran pada jadwal utama berhasil disinkronkan menjadi ${validDur} menit!`, 'success');
+  };
+
   // Reset to initial demo data
   const resetToSampleData = () => {
     localStorage.removeItem(STORAGE_KEYS.RECORDS);
@@ -672,6 +707,7 @@ export const AttendanceProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         deletePeriodSlot,
         resetPeriodSlots,
         updateSettings,
+        syncAllPeriodSlotsDuration,
         resetToSampleData,
         exportDataJson,
         importDataJson,

@@ -41,6 +41,8 @@ export const DailyReportView: React.FC = () => {
 
   // Generate Daily Teacher Recap Rows with Automatic Effective Time & Percentage
   const dailyTeacherRows: DailyRecapTeacherRow[] = useMemo(() => {
+    const periodMinutes = settings.lessonDurationMinutes || 40;
+
     return teachers.map((teacher) => {
       const teacherRecords = recordsForDate.filter(
         (r) =>
@@ -80,7 +82,7 @@ export const DailyReportView: React.FC = () => {
         const sNum = ROMAN_INDEX_ORDER[range.start] || 1;
         const eNum = ROMAN_INDEX_ORDER[range.end] || sNum;
         const recHours = Math.max(1, Math.abs(eNum - sNum) + 1);
-        const recMinutes = recHours * 60; // Dikonversi ke menit (standar: 60 menit per jam)
+        const recMinutes = recHours * periodMinutes; // Dikonversi ke menit (sesuai pengaturan jam pelajaran)
 
         if (rec.status === 'HADIR') {
           hadirTepat += recHours;
@@ -110,7 +112,7 @@ export const DailyReportView: React.FC = () => {
       });
 
       const totalJamMengajar = hadirTepat + terlambatHours + dinasTugas + tidakHadir + izinSakit;
-      const totalJamMengajarMenit = totalJamMengajar * 60;
+      const totalJamMengajarMenit = totalJamMengajar * periodMinutes;
 
       let percentage = 0.0;
       if (totalJamMengajar === 0) {
@@ -148,7 +150,7 @@ export const DailyReportView: React.FC = () => {
       if (!a.hasData && b.hasData) return 1;
       return a.teacherName.localeCompare(b.teacherName);
     });
-  }, [teachers, recordsForDate]);
+  }, [teachers, recordsForDate, settings.lessonDurationMinutes]);
 
   // Overall totals for the day
   const overall = useMemo(() => {
@@ -487,15 +489,27 @@ export const DailyReportView: React.FC = () => {
           <h3 className="text-base sm:text-lg font-black text-slate-900 mt-3 underline tracking-wide uppercase">
             REKAPITULASI ABSENSI GURU HARIAN
           </h3>
-          <p className="text-xs text-slate-700 mt-1 font-semibold">
-            Tanggal:{' '}
-            <span className="font-extrabold text-slate-900">
-              {formatIndonesianDate(selectedDate)}
-            </span>{' '}
-            | Tahun Ajaran:{' '}
-            <span className="font-extrabold text-slate-900">{settings.academicYear}</span> |
-            Semester:{' '}
-            <span className="font-extrabold text-slate-900">{settings.semester}</span>
+          <p className="text-xs text-slate-700 mt-1 font-semibold flex items-center justify-center flex-wrap gap-2">
+            <span>
+              Tanggal:{' '}
+              <span className="font-extrabold text-slate-900">
+                {formatIndonesianDate(selectedDate)}
+              </span>
+            </span>
+            <span>|</span>
+            <span>
+              Tahun Ajaran:{' '}
+              <span className="font-extrabold text-slate-900">{settings.academicYear}</span>
+            </span>
+            <span>|</span>
+            <span>
+              Semester:{' '}
+              <span className="font-extrabold text-slate-900">{settings.semester}</span>
+            </span>
+            <span>|</span>
+            <span className="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 text-[11px] font-extrabold">
+              1 Jam = {settings.lessonDurationMinutes || 40} Menit
+            </span>
           </p>
         </div>
 

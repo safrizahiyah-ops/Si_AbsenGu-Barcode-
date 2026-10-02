@@ -1,6 +1,11 @@
 import React, { useState, useMemo } from 'react';
 import { useAttendance } from '../context/AttendanceContext';
-import { INDONESIAN_MONTHS, formatIndonesianDateShort } from '../constants/schedule';
+import {
+  INDONESIAN_MONTHS,
+  formatIndonesianDateShort,
+  parsePeriodString,
+  ROMAN_INDEX_ORDER,
+} from '../constants/schedule';
 import {
   generateMonthlyReportPdf,
   copyToGoogleDocsHtml,
@@ -36,7 +41,25 @@ export const MonthlyReportView: React.FC = () => {
 
   // Aggregate stats per teacher
   const monthlyData: MonthlyRecapRow[] = useMemo(() => {
-    const teacherMap = new Map<string, MonthlyRecapRow>();
+    const periodMinutes = settings.lessonDurationMinutes || 40;
+    const teacherMap = new Map<
+      string,
+      {
+        teacherName: string;
+        hadir: number;
+        terlambat: number;
+        izin: number;
+        sakit: number;
+        dinas: number;
+        tidakHadir: number;
+        total: number;
+        totalMenit: number;
+        jamEfektifMnt: number;
+        izinSakitMnt: number;
+        percentage: number;
+        hasData: boolean;
+      }
+    >();
 
     // Seed all teachers
     teachers.forEach((t) => {
@@ -49,7 +72,11 @@ export const MonthlyReportView: React.FC = () => {
         dinas: 0,
         tidakHadir: 0,
         total: 0,
-        percentage: 100,
+        totalMenit: 0,
+        jamEfektifMnt: 0,
+        izinSakitMnt: 0,
+        percentage: 0.0,
+        hasData: false,
       });
     });
 
@@ -65,26 +92,77 @@ export const MonthlyReportView: React.FC = () => {
           dinas: 0,
           tidakHadir: 0,
           total: 0,
-          percentage: 100,
+          totalMenit: 0,
+          jamEfektifMnt: 0,
+          izinSakitMnt: 0,
+          percentage: 0.0,
+          hasData: false,
         };
         teacherMap.set(rec.teacherName, row);
       }
 
-      row.total += 1;
-      if (rec.status === 'HADIR') row.hadir += 1;
-      else if (rec.status === 'TERLAMBAT') row.terlambat += 1;
-      else if (rec.status === 'IZIN') row.izin += 1;
-      else if (rec.status === 'SAKIT') row.sakit += 1;
-      else if (rec.status === 'DINAS/TUGAS') row.dinas += 1;
-      else if (rec.status === 'TIDAK HADIR') row.tidakHadir += 1;
+      row.hasData = true;
+
+      // Calculate number of lesson hours for this record
+      const range = parsePeriodString(rec.period);
+      const sNum = ROMAN_INDEX_ORDER[range.start] || 1;
+      const eNum = ROMAN_INDEX_ORDER[range.end] || sNum;
+      const recHours = Math.max(1, Math.abs(eNum - sNum) + 1);
+      const recMinutes = recHours * periodMinutes;
+
+      if (rec.status === 'HADIR') {
+        row.hadir += recHours;
+        row.jamEfektifMnt += recMinutes;
+      } else if (rec.status === 'TERLAMBAT') {
+        row.terlambat += recHours;
+        let late = rec.lateMinutes;
+        if (!late || late <= 0) {
+          const match = rec.notes?.match(/(\d+)\s*(?:menit|mnt|m\b)/i);
+          late = match ? parseInt(match[1], 10) : 10;
+        }
+        row.jamEfektifMnt += Math.max(0, recMinutes - late);
+      } else if (rec.status === 'IZIN') {
+        row.izin += recHours;
+        row.izinSakitMnt += recMinutes;
+      } else if (rec.status === 'SAKIT') {
+        row.sakit += recHours;
+        row.izinSakitMnt += recMinutes;
+      } else if (rec.status === 'DINAS/TUGAS') {
+        row.dinas += recHours;
+        row.jamEfektifMnt += recMinutes;
+      } else if (rec.status === 'TIDAK HADIR') {
+        row.tidakHadir += recHours;
+      }
     });
 
     return Array.from(teacherMap.values())
       .map((row) => {
-        const active = row.hadir + row.terlambat + row.dinas;
-        const percentage = row.total > 0 ? (active / row.total) * 100 : 100;
+        const total = row.hadir + row.terlambat + row.izin + row.sakit + row.dinas + row.tidakHadir;
+        const totalMenit = total * periodMinutes;
+        let percentage = 0.0;
+
+        if (!row.hasData || total === 0) {
+          percentage = 0.0;
+        } else if (row.izin + row.sakit === total) {
+          percentage = 100.0;
+        } else {
+          const evaluatableMinutes = totalMenit - row.izinSakitMnt;
+          if (evaluatableMinutes > 0) {
+            percentage = Math.min(100, Math.max(0, (row.jamEfektifMnt / evaluatableMinutes) * 100));
+          } else {
+            percentage = 0.0;
+          }
+        }
+
         return {
-          ...row,
+          teacherName: row.teacherName,
+          hadir: row.hadir,
+          terlambat: row.terlambat,
+          izin: row.izin,
+          sakit: row.sakit,
+          dinas: row.dinas,
+          tidakHadir: row.tidakHadir,
+          total,
           percentage,
         };
       })
@@ -92,7 +170,7 @@ export const MonthlyReportView: React.FC = () => {
         if (b.total !== a.total) return b.total - a.total;
         return a.teacherName.localeCompare(b.teacherName);
       });
-  }, [teachers, monthlyRecords]);
+  }, [teachers, monthlyRecords, settings.lessonDurationMinutes]);
 
   // Overall totals
   const overall = useMemo(() => {

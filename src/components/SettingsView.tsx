@@ -11,38 +11,64 @@ import {
   UserCheck,
   Building2,
   CheckCircle,
+  Clock,
+  Sparkles,
+  Timer,
+  Check,
 } from 'lucide-react';
 
 export const SettingsView: React.FC = () => {
   const {
     settings,
     updateSettings,
+    syncAllPeriodSlotsDuration,
     resetToSampleData,
     exportDataJson,
     importDataJson,
     showToast,
   } = useAttendance();
 
-  const [formSettings, setFormSettings] = useState<AppSettings>({ ...settings });
+  const [formSettings, setFormSettings] = useState<AppSettings>({
+    ...settings,
+    lessonDurationMinutes: settings.lessonDurationMinutes || 40,
+  });
+  const [syncScheduleDuration, setSyncScheduleDuration] = useState<boolean>(true);
   const [isSaved, setIsSaved] = useState<boolean>(false);
 
   // Synchronize form if settings updated externally or on reset
   useEffect(() => {
-    setFormSettings(settings);
+    setFormSettings({
+      ...settings,
+      lessonDurationMinutes: settings.lessonDurationMinutes || 40,
+    });
   }, [settings]);
 
-  const handleChange = (field: keyof AppSettings, val: string) => {
+  const handleChange = (field: keyof AppSettings, val: any) => {
     setFormSettings((prev) => ({
       ...prev,
       [field]: val,
     }));
   };
 
+  const handleDurationSelect = (mins: number) => {
+    setFormSettings((prev) => ({
+      ...prev,
+      lessonDurationMinutes: mins,
+    }));
+  };
+
   const handleSave = (e: React.FormEvent) => {
     e.preventDefault();
-    updateSettings(formSettings);
+    const duration = formSettings.lessonDurationMinutes || 40;
+    updateSettings({
+      ...formSettings,
+      lessonDurationMinutes: duration,
+    });
+    if (syncScheduleDuration) {
+      syncAllPeriodSlotsDuration(duration);
+    }
     setIsSaved(true);
-    showToast('Pengaturan madrasah berhasil disimpan.', 'success');
+    showToast('Pengaturan madrasah & durasi jam pelajaran berhasil disimpan.', 'success');
     setTimeout(() => setIsSaved(false), 3000);
   };
 
@@ -173,6 +199,115 @@ export const SettingsView: React.FC = () => {
               <option value="Genap">Genap</option>
             </select>
           </div>
+        </div>
+
+        {/* Durasi Jam Pelajaran - Terhubung Otomatis ke Seluruh Rekap */}
+        <div className="border-b border-slate-100 pt-4 pb-4">
+          <div className="flex items-center justify-between flex-wrap gap-2">
+            <h2 className="text-sm font-bold text-slate-900 flex items-center gap-2">
+              <Clock className="w-4 h-4 text-emerald-700" />
+              Durasi Standar Jam Pelajaran (Terhubung ke Semua Laporan Rekap)
+            </h2>
+            <span className="px-2.5 py-0.5 rounded-full text-[11px] font-extrabold bg-emerald-100 text-emerald-800 border border-emerald-300 flex items-center gap-1">
+              <Sparkles className="w-3 h-3 text-emerald-700" />
+              Otomatis & Terhubung
+            </span>
+          </div>
+          <p className="text-xs text-slate-500 mt-0.5">
+            Tentukan durasi 1 jam pelajaran (30/35/40/45/50 menit). Nilai ini otomatis digunakan untuk rumus jam efektif dan persentase kehadiran di Rekapitulasi Harian & Mingguan.
+          </p>
+        </div>
+
+        <div className="p-4 rounded-2xl bg-emerald-50/70 border border-emerald-200 space-y-4">
+          <div>
+            <label className="block text-xs font-bold text-slate-800 mb-2">
+              Pilih Durasi Jam Pelajaran:
+            </label>
+            <div className="grid grid-cols-2 sm:grid-cols-5 gap-2.5">
+              {[30, 35, 40, 45, 50].map((mins) => {
+                const isSelected = (formSettings.lessonDurationMinutes || 40) === mins;
+                return (
+                  <button
+                    key={mins}
+                    type="button"
+                    onClick={() => handleDurationSelect(mins)}
+                    className={`py-2.5 px-3 rounded-xl text-xs font-bold transition-all border flex flex-col items-center justify-center gap-1 ${
+                      isSelected
+                        ? 'bg-emerald-700 text-white border-emerald-800 shadow-md ring-2 ring-emerald-500/50 scale-[1.02]'
+                        : 'bg-white text-slate-800 border-slate-300 hover:border-emerald-400 hover:bg-emerald-50/50'
+                    }`}
+                  >
+                    <span className="text-sm font-black">{mins} Menit</span>
+                    <span className={`text-[10px] font-normal ${isSelected ? 'text-emerald-200' : 'text-slate-500'}`}>
+                      {mins === 40 ? 'Standar MA' : mins === 45 ? 'Standar SMA' : mins === 30 ? 'Khusus Ramadhan' : 'Kustom'}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Custom Duration Input if needed */}
+          <div className="flex items-center gap-3 pt-2">
+            <span className="text-xs font-bold text-slate-700">Atau Durasi Kustom:</span>
+            <div className="flex items-center gap-1.5">
+              <input
+                type="number"
+                min="10"
+                max="120"
+                value={formSettings.lessonDurationMinutes || 40}
+                onChange={(e) => handleDurationSelect(parseInt(e.target.value, 10) || 40)}
+                className="w-20 px-3 py-1.5 rounded-xl border border-slate-300 text-center font-bold text-xs focus:ring-2 focus:ring-emerald-500 bg-white"
+              />
+              <span className="text-xs font-semibold text-slate-600">Menit per Jam</span>
+            </div>
+          </div>
+
+          {/* Live Formula Preview Box */}
+          <div className="p-3.5 rounded-xl bg-white border border-emerald-200/90 text-xs text-slate-700 space-y-1.5 shadow-2xs">
+            <div className="flex items-center gap-2 font-bold text-emerald-900">
+              <Timer className="w-4 h-4 text-emerald-700" />
+              <span>Simulasi Rumus Terhubung Langsung:</span>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 pt-1 font-mono text-[11px]">
+              <div className="p-2 rounded-lg bg-slate-50 border border-slate-200">
+                <span className="text-slate-500">1 Jam Mengajar:</span>{' '}
+                <strong className="text-slate-900">{formSettings.lessonDurationMinutes || 40} Menit</strong>
+              </div>
+              <div className="p-2 rounded-lg bg-slate-50 border border-slate-200">
+                <span className="text-slate-500">2 Jam Mengajar:</span>{' '}
+                <strong className="text-slate-900">{(formSettings.lessonDurationMinutes || 40) * 2} Menit</strong>
+              </div>
+              <div className="p-2 rounded-lg bg-slate-50 border border-slate-200">
+                <span className="text-slate-500">3 Jam Mengajar:</span>{' '}
+                <strong className="text-slate-900">{(formSettings.lessonDurationMinutes || 40) * 3} Menit</strong>
+              </div>
+            </div>
+            <p className="text-[11px] text-slate-600 pt-1 leading-relaxed">
+              <strong>Contoh Penghitungan:</strong> Jadwal 2 jam ({(formSettings.lessonDurationMinutes || 40) * 2} mnt) jika guru terlambat 10 menit → Jam Efektif = {(formSettings.lessonDurationMinutes || 40) * 2 - 10} mnt → % Kehadiran otomatis menjadi{' '}
+              <strong className="text-emerald-800 font-bold font-mono">
+                {((((formSettings.lessonDurationMinutes || 40) * 2 - 10) / ((formSettings.lessonDurationMinutes || 40) * 2)) * 100).toFixed(1).replace('.', ',')}%
+              </strong>.
+            </p>
+          </div>
+
+          {/* Sync schedule checkbox */}
+          <label className="flex items-start gap-2.5 pt-1 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={syncScheduleDuration}
+              onChange={(e) => setSyncScheduleDuration(e.target.checked)}
+              className="w-4 h-4 mt-0.5 text-emerald-600 rounded-md focus:ring-emerald-500"
+            />
+            <div className="text-xs text-slate-700">
+              <span className="font-bold text-slate-900">
+                Sinkronkan juga durasi jam pelajaran pada menu "Jadwal Pelajaran"
+              </span>
+              <p className="text-slate-500 text-[11px]">
+                Jika dicentang, seluruh jam KBM pada jadwal utama otomatis diperbarui ke durasi {formSettings.lessonDurationMinutes || 40} menit secara berurutan.
+              </p>
+            </div>
+          </label>
         </div>
 
         {/* Pejabat Penandatangan */}

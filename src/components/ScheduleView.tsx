@@ -48,6 +48,8 @@ export const ScheduleView: React.FC = () => {
     deletePeriodSlot,
     resetPeriodSlots,
     showToast,
+    settings,
+    setActiveTab,
   } = useAttendance();
 
   // View mode: 'cards' or 'table'
@@ -448,15 +450,19 @@ export const ScheduleView: React.FC = () => {
           <Sparkles className="w-4 h-4 text-emerald-700 shrink-0 mt-0.5" />
           <div>
             <span className="font-extrabold">Sinkronisasi Otomatis Terhubung:</span>{' '}
-            Setiap perubahan rentang jam (misalnya <em>Jam III: 08.50 - 09.30</em>) langsung memperbarui pilihan dropdown pada <strong>Form Input Absensi</strong>, <strong>Barcode Scanner</strong>, <strong>Jam Pelajaran Berjalan</strong>, dan <strong>Laporan Harian</strong> secara instan.
+            Durasi standar saat ini adalah <strong className="text-emerald-800 underline font-black">{settings.lessonDurationMinutes || 40} Menit</strong> per jam pelajaran (dapat diatur di menu <button type="button" onClick={() => setActiveTab('settings')} className="font-bold underline text-emerald-800 hover:text-emerald-950">Pengaturan</button>). Setiap perubahan rentang waktu langsung terhubung ke perhitungan laporan harian & mingguan, form absensi, dan jam berjalan secara instan.
           </div>
         </div>
         <div className="flex items-center gap-2 shrink-0">
-          <span className="px-2.5 py-1 rounded-full bg-emerald-200/80 text-emerald-900 font-extrabold text-[11px]">
+          <span className="px-2.5 py-1 rounded-full bg-emerald-200/80 text-emerald-900 font-extrabold text-[11px] flex items-center gap-1">
+            <Clock className="w-3 h-3 text-emerald-800" />
+            1 Jam = {settings.lessonDurationMinutes || 40} Menit
+          </span>
+          <span className="px-2.5 py-1 rounded-full bg-emerald-100 text-emerald-800 font-extrabold text-[11px]">
             {periodSlots.filter((s) => !s.isBreak).length} Jam KBM
           </span>
           <span className="px-2.5 py-1 rounded-full bg-amber-200/80 text-amber-900 font-extrabold text-[11px]">
-            {periodSlots.filter((s) => s.isBreak).length} Waktu Istirahat
+            {periodSlots.filter((s) => s.isBreak).length} Istirahat
           </span>
         </div>
       </div>

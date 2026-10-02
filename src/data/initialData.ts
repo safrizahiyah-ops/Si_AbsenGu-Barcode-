@@ -12,6 +12,7 @@ export const INITIAL_SETTINGS: AppSettings = {
   picketTeam: 'Tim Piket Reguler (Shift Pagi)',
   academicYear: '2026/2027',
   semester: 'Ganjil',
+  lessonDurationMinutes: 40,
 };
 
 export const INITIAL_TEACHERS: Teacher[] = [

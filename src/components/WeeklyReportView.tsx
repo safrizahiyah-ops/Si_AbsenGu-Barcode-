@@ -3,6 +3,8 @@ import { useAttendance } from '../context/AttendanceContext';
 import {
   formatIndonesianDateShort,
   getTodayDateString,
+  parsePeriodString,
+  ROMAN_INDEX_ORDER,
 } from '../constants/schedule';
 import {
   generateWeeklyReportPdf,
@@ -18,6 +20,9 @@ import {
   FileSpreadsheet,
   CheckCircle,
   TrendingUp,
+  Clock,
+  Sparkles,
+  Timer,
 } from 'lucide-react';
 
 export const WeeklyReportView: React.FC = () => {
@@ -32,15 +37,35 @@ export const WeeklyReportView: React.FC = () => {
   const [endDate, setEndDate] = useState<string>(getTodayDateString());
   const [isCopied, setIsCopied] = useState<boolean>(false);
 
+  // Connected period duration from settings (30/35/40/45/50 menit)
+  const periodMinutes = settings.lessonDurationMinutes || 40;
+
   // Filter records within range
   const filteredRecords = useMemo(() => {
     return records.filter((r) => r.date >= startDate && r.date <= endDate);
   }, [records, startDate, endDate]);
 
-  // Aggregate stats per teacher
+  // Aggregate stats per teacher based on connected period duration and effective minutes
   const weeklyData: WeeklyRecapRow[] = useMemo(() => {
-    // Map of teacherId or teacherName to stats
-    const teacherMap = new Map<string, WeeklyRecapRow>();
+    const teacherMap = new Map<
+      string,
+      {
+        teacherName: string;
+        hadir: number;
+        terlambat: number;
+        terlambatMnt: number;
+        izin: number;
+        sakit: number;
+        dinas: number;
+        tidakHadir: number;
+        total: number;
+        totalMenit: number;
+        jamEfektifMnt: number;
+        izinSakitMnt: number;
+        percentage: number;
+        hasData: boolean;
+      }
+    >();
 
     // Initialize all registered teachers so complete overview is shown
     teachers.forEach((t) => {
@@ -48,12 +73,17 @@ export const WeeklyReportView: React.FC = () => {
         teacherName: t.name,
         hadir: 0,
         terlambat: 0,
+        terlambatMnt: 0,
         izin: 0,
         sakit: 0,
         dinas: 0,
         tidakHadir: 0,
         total: 0,
-        percentage: 100,
+        totalMenit: 0,
+        jamEfektifMnt: 0,
+        izinSakitMnt: 0,
+        percentage: 0.0,
+        hasData: false,
       });
     });
 
@@ -64,31 +94,87 @@ export const WeeklyReportView: React.FC = () => {
           teacherName: rec.teacherName,
           hadir: 0,
           terlambat: 0,
+          terlambatMnt: 0,
           izin: 0,
           sakit: 0,
           dinas: 0,
           tidakHadir: 0,
           total: 0,
-          percentage: 100,
+          totalMenit: 0,
+          jamEfektifMnt: 0,
+          izinSakitMnt: 0,
+          percentage: 0.0,
+          hasData: false,
         };
         teacherMap.set(rec.teacherName, row);
       }
 
-      row.total += 1;
-      if (rec.status === 'HADIR') row.hadir += 1;
-      else if (rec.status === 'TERLAMBAT') row.terlambat += 1;
-      else if (rec.status === 'IZIN') row.izin += 1;
-      else if (rec.status === 'SAKIT') row.sakit += 1;
-      else if (rec.status === 'DINAS/TUGAS') row.dinas += 1;
-      else if (rec.status === 'TIDAK HADIR') row.tidakHadir += 1;
+      row.hasData = true;
+
+      // Calculate number of lesson hours for this record
+      const range = parsePeriodString(rec.period);
+      const sNum = ROMAN_INDEX_ORDER[range.start] || 1;
+      const eNum = ROMAN_INDEX_ORDER[range.end] || sNum;
+      const recHours = Math.max(1, Math.abs(eNum - sNum) + 1);
+      const recMinutes = recHours * periodMinutes; // Dikonversi ke menit sesuai pengaturan
+
+      if (rec.status === 'HADIR') {
+        row.hadir += recHours;
+        row.jamEfektifMnt += recMinutes;
+      } else if (rec.status === 'TERLAMBAT') {
+        row.terlambat += recHours;
+        let late = rec.lateMinutes;
+        if (!late || late <= 0) {
+          const match = rec.notes?.match(/(\d+)\s*(?:menit|mnt|m\b)/i);
+          late = match ? parseInt(match[1], 10) : 10;
+        }
+        row.terlambatMnt += late;
+        row.jamEfektifMnt += Math.max(0, recMinutes - late);
+      } else if (rec.status === 'IZIN') {
+        row.izin += recHours;
+        row.izinSakitMnt += recMinutes;
+      } else if (rec.status === 'SAKIT') {
+        row.sakit += recHours;
+        row.izinSakitMnt += recMinutes;
+      } else if (rec.status === 'DINAS/TUGAS') {
+        row.dinas += recHours;
+        row.jamEfektifMnt += recMinutes;
+      } else if (rec.status === 'TIDAK HADIR') {
+        row.tidakHadir += recHours;
+      }
     });
 
-    // Calculate percentage
-    const rows = Array.from(teacherMap.values()).map((row) => {
-      const active = row.hadir + row.terlambat + row.dinas;
-      const percentage = row.total > 0 ? (active / row.total) * 100 : 100;
+    // Calculate percentage per teacher based on effective minutes and period duration
+    const rows: WeeklyRecapRow[] = Array.from(teacherMap.values()).map((row) => {
+      const total = row.hadir + row.terlambat + row.izin + row.sakit + row.dinas + row.tidakHadir;
+      const totalMenit = total * periodMinutes;
+      let percentage = 0.0;
+
+      if (!row.hasData || total === 0) {
+        percentage = 0.0;
+      } else if (row.izin + row.sakit === total) {
+        percentage = 100.0;
+      } else {
+        const evaluatableMinutes = totalMenit - row.izinSakitMnt;
+        if (evaluatableMinutes > 0) {
+          percentage = Math.min(100, Math.max(0, (row.jamEfektifMnt / evaluatableMinutes) * 100));
+        } else {
+          percentage = 0.0;
+        }
+      }
+
       return {
-        ...row,
+        teacherName: row.teacherName,
+        hadir: row.hadir,
+        terlambat: row.terlambat,
+        terlambatMnt: row.terlambatMnt,
+        izin: row.izin,
+        sakit: row.sakit,
+        dinas: row.dinas,
+        tidakHadir: row.tidakHadir,
+        total,
+        totalMenit,
+        jamEfektifMnt: row.jamEfektifMnt,
         percentage,
       };
     });
@@ -98,33 +184,59 @@ export const WeeklyReportView: React.FC = () => {
       if (b.total !== a.total) return b.total - a.total;
       return a.teacherName.localeCompare(b.teacherName);
     });
-  }, [teachers, filteredRecords]);
+  }, [teachers, filteredRecords, periodMinutes]);
 
   // Overall totals
   const overall = useMemo(() => {
     let hadir = 0;
     let terlambat = 0;
+    let terlambatMnt = 0;
     let izin = 0;
     let sakit = 0;
     let dinas = 0;
     let tidakHadir = 0;
     let total = 0;
+    let totalJamEfektifMnt = 0;
+    let totalEvaluatableMnt = 0;
 
     weeklyData.forEach((r) => {
       hadir += r.hadir;
       terlambat += r.terlambat;
+      terlambatMnt += r.terlambatMnt || 0;
       izin += r.izin;
       sakit += r.sakit;
       dinas += r.dinas;
       tidakHadir += r.tidakHadir;
       total += r.total;
+
+      const rTotalMenit = r.total * periodMinutes;
+      const rExcusedMenit = (r.izin + r.sakit) * periodMinutes;
+      const rEval = rTotalMenit - rExcusedMenit;
+      if (rEval > 0) {
+        totalEvaluatableMnt += rEval;
+        totalJamEfektifMnt += r.jamEfektifMnt || 0;
+      }
     });
 
-    const active = hadir + terlambat + dinas;
-    const percentage = total > 0 ? (active / total) * 100 : 100;
+    const percentage =
+      totalEvaluatableMnt > 0
+        ? (totalJamEfektifMnt / totalEvaluatableMnt) * 100
+        : total > 0 && izin + sakit === total
+        ? 100
+        : 0;
 
-    return { hadir, terlambat, izin, sakit, dinas, tidakHadir, total, percentage };
-  }, [weeklyData]);
+    return {
+      hadir,
+      terlambat,
+      terlambatMnt,
+      izin,
+      sakit,
+      dinas,
+      tidakHadir,
+      total,
+      percentage,
+    };
+  }, [weeklyData, periodMinutes]);
 
   const handleDownloadPdf = () => {
     generateWeeklyReportPdf(weeklyData, startDate, endDate, settings);
@@ -142,14 +254,14 @@ export const WeeklyReportView: React.FC = () => {
         <tr>
           <td style="border: 1px solid #000; padding: 6px; text-align: center;">${i + 1}</td>
           <td style="border: 1px solid #000; padding: 6px;"><b>${r.teacherName}</b></td>
-          <td style="border: 1px solid #000; padding: 6px; text-align: center;">${r.hadir}</td>
-          <td style="border: 1px solid #000; padding: 6px; text-align: center;">${r.terlambat}</td>
-          <td style="border: 1px solid #000; padding: 6px; text-align: center;">${r.izin}</td>
-          <td style="border: 1px solid #000; padding: 6px; text-align: center;">${r.sakit}</td>
-          <td style="border: 1px solid #000; padding: 6px; text-align: center;">${r.dinas}</td>
-          <td style="border: 1px solid #000; padding: 6px; text-align: center;">${r.tidakHadir}</td>
-          <td style="border: 1px solid #000; padding: 6px; text-align: center;"><b>${r.total}</b></td>
-          <td style="border: 1px solid #000; padding: 6px; text-align: center;"><b>${r.percentage.toFixed(1)}%</b></td>
+          <td style="border: 1px solid #000; padding: 6px; text-align: center;">${r.hadir} Jam</td>
+          <td style="border: 1px solid #000; padding: 6px; text-align: center;">${r.terlambat} Jam${r.terlambatMnt ? ` (${r.terlambatMnt} mnt)` : ''}</td>
+          <td style="border: 1px solid #000; padding: 6px; text-align: center;">${r.izin} Jam</td>
+          <td style="border: 1px solid #000; padding: 6px; text-align: center;">${r.sakit} Jam</td>
+          <td style="border: 1px solid #000; padding: 6px; text-align: center;">${r.dinas} Jam</td>
+          <td style="border: 1px solid #000; padding: 6px; text-align: center;">${r.tidakHadir} Jam</td>
+          <td style="border: 1px solid #000; padding: 6px; text-align: center;"><b>${r.total} Jam (${r.total * periodMinutes} mnt)</b></td>
+          <td style="border: 1px solid #000; padding: 6px; text-align: center;"><b>${r.percentage.toFixed(1).replace('.', ',')}%</b></td>
         </tr>`
       )
       .join('');
@@ -161,7 +273,9 @@ export const WeeklyReportView: React.FC = () => {
           <p style="margin: 4px 0 0 0; font-size: 12px;">${settings.subTitle}</p>
           <hr style="border: 1px solid #000; margin: 10px 0 20px 0;" />
           <h3 style="margin: 0; font-size: 15px; font-weight: bold;">REKAPITULASI ABSENSI GURU MINGGUAN</h3>
-          <p style="margin: 5px 0 15px 0; font-size: 12px;">Periode: ${formatIndonesianDateShort(startDate)} s.d. ${formatIndonesianDateShort(endDate)}</p>
+          <p style="margin: 5px 0 15px 0; font-size: 12px;">
+            Periode: ${formatIndonesianDateShort(startDate)} s.d. ${formatIndonesianDateShort(endDate)} | Tahun Ajaran: ${settings.academicYear} | 1 Jam Pelajaran = ${periodMinutes} Menit
+          </p>
         </div>
 
         <table style="width: 100%; border-collapse: collapse; font-size: 12px; margin-bottom: 30px;">
@@ -185,14 +299,14 @@ export const WeeklyReportView: React.FC = () => {
           <tfoot>
             <tr style="background-color: #e6e6e6; font-weight: bold;">
               <td colspan="2" style="border: 1px solid #000; padding: 8px; text-align: center;">TOTAL KESELURUHAN</td>
-              <td style="border: 1px solid #000; padding: 8px; text-align: center;">${overall.hadir}</td>
-              <td style="border: 1px solid #000; padding: 8px; text-align: center;">${overall.terlambat}</td>
-              <td style="border: 1px solid #000; padding: 8px; text-align: center;">${overall.izin}</td>
-              <td style="border: 1px solid #000; padding: 8px; text-align: center;">${overall.sakit}</td>
-              <td style="border: 1px solid #000; padding: 8px; text-align: center;">${overall.dinas}</td>
-              <td style="border: 1px solid #000; padding: 8px; text-align: center;">${overall.tidakHadir}</td>
-              <td style="border: 1px solid #000; padding: 8px; text-align: center;">${overall.total}</td>
-              <td style="border: 1px solid #000; padding: 8px; text-align: center;">${overall.percentage.toFixed(1)}%</td>
+              <td style="border: 1px solid #000; padding: 8px; text-align: center;">${overall.hadir} Jam</td>
+              <td style="border: 1px solid #000; padding: 8px; text-align: center;">${overall.terlambat} Jam${overall.terlambatMnt ? ` (${overall.terlambatMnt} mnt)` : ''}</td>
+              <td style="border: 1px solid #000; padding: 8px; text-align: center;">${overall.izin} Jam</td>
+              <td style="border: 1px solid #000; padding: 8px; text-align: center;">${overall.sakit} Jam</td>
+              <td style="border: 1px solid #000; padding: 8px; text-align: center;">${overall.dinas} Jam</td>
+              <td style="border: 1px solid #000; padding: 8px; text-align: center;">${overall.tidakHadir} Jam</td>
+              <td style="border: 1px solid #000; padding: 8px; text-align: center;">${overall.total} Jam (${overall.total * periodMinutes} mnt)</td>
+              <td style="border: 1px solid #000; padding: 8px; text-align: center;">${overall.percentage.toFixed(1).replace('.', ',')}%</td>
             </tr>
           </tfoot>
         </table>
@@ -216,8 +330,14 @@ export const WeeklyReportView: React.FC = () => {
       </div>
     `;
 
-    const plain = `${settings.schoolName}\nREKAPITULASI MINGGUAN\nPeriode: ${startDate} s.d. ${endDate}\n\n` +
-      weeklyData.map((r, i) => `${i + 1}. ${r.teacherName}: Hadir=${r.hadir}, Terlambat=${r.terlambat}, Izin=${r.izin}, Sakit=${r.sakit}, Dinas=${r.dinas}, Alpha=${r.tidakHadir} (${r.percentage.toFixed(1)}%)`).join('\n');
+    const plain =
+      `${settings.schoolName}\nREKAPITULASI MINGGUAN\nPeriode: ${startDate} s.d. ${endDate} | 1 Jam = ${periodMinutes} Menit\n\n` +
+      weeklyData
+        .map(
+          (r, i) =>
+            `${i + 1}. ${r.teacherName}: Hadir=${r.hadir} Jam, Terlambat=${r.terlambat} Jam (${r.terlambatMnt || 0} mnt), Izin=${r.izin} Jam, Sakit=${r.sakit} Jam, Dinas=${r.dinas} Jam, Alpha=${r.tidakHadir} Jam, Total=${r.total} Jam (${r.total * periodMinutes} mnt) [${r.percentage.toFixed(1).replace('.', ',')}%]`
+        )
+        .join('\n');
 
     const success = await copyToGoogleDocsHtml(fullHtml, plain);
     if (success) {
@@ -231,13 +351,15 @@ export const WeeklyReportView: React.FC = () => {
     const headers = [
       'No',
       'Nama Guru',
-      'Hadir',
-      'Terlambat',
-      'Izin',
-      'Sakit',
-      'Dinas/Tugas',
-      'Tidak Hadir',
+      'Hadir (Jam)',
+      'Terlambat (Jam)',
+      'Terlambat (Menit)',
+      'Izin (Jam)',
+      'Sakit (Jam)',
+      'Dinas/Tugas (Jam)',
+      'Tidak Hadir (Jam)',
       'Total Jam',
+      'Total Menit',
       '% Kehadiran',
     ];
     const rows = weeklyData.map((r, i) => [
@@ -245,27 +367,41 @@ export const WeeklyReportView: React.FC = () => {
       r.teacherName,
       r.hadir,
       r.terlambat,
+      r.terlambatMnt || 0,
       r.izin,
       r.sakit,
       r.dinas,
       r.tidakHadir,
       r.total,
+      r.total * periodMinutes,
       `${r.percentage.toFixed(1)}%`,
     ]);
-    downloadCsv(`Rekap-Absensi-Mingguan-${startDate}-sd-${endDate}.csv`, headers, rows);
+
+    downloadCsv(
+      `REKAP_MINGGUAN_${startDate}_sd_${endDate}_DURASI_${periodMinutes}MNT.csv`,
+      headers,
+      rows
+    );
+    showToast('Berkas CSV berhasil diunduh.', 'success');
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 max-w-6xl mx-auto">
       {/* Controls & Filter Bar */}
       <div className="no-print bg-white rounded-2xl border border-slate-200 p-5 shadow-xs flex flex-col lg:flex-row lg:items-center justify-between gap-4">
         <div>
-          <h1 className="text-xl font-extrabold text-slate-900 tracking-tight flex items-center gap-2">
-            <TrendingUp className="w-5 h-5 text-blue-600" />
-            Rekap Mingguan Absensi Guru
-          </h1>
-          <p className="text-xs text-slate-500 mt-0.5">
-            Laporan kumulatif kehadiran guru dalam rentang tanggal tertentu
+          <div className="flex items-center gap-2 flex-wrap">
+            <h1 className="text-xl font-extrabold text-slate-900 tracking-tight flex items-center gap-2">
+              <TrendingUp className="w-5 h-5 text-blue-600" />
+              Rekap Mingguan Absensi Guru
+            </h1>
+            <span className="px-2.5 py-0.5 rounded-full text-[11px] font-extrabold bg-emerald-100 text-emerald-800 border border-emerald-300 flex items-center gap-1">
+              <Clock className="w-3 h-3 text-emerald-700" />
+              1 Jam = {periodMinutes} Menit (Otomatis)
+            </span>
+          </div>
+          <p className="text-xs text-slate-500 mt-1">
+            Laporan kumulatif kehadiran guru dalam rentang tanggal tertentu dengan jam efektif terhubung langsung ke pengaturan
           </p>
         </div>
 
@@ -329,6 +465,32 @@ export const WeeklyReportView: React.FC = () => {
         </div>
       </div>
 
+      {/* Legend / Color Indicator Pill Banner */}
+      <div className="no-print bg-white rounded-2xl border border-slate-200 p-3.5 shadow-2xs flex items-center justify-between flex-wrap gap-2 text-xs">
+        <div className="flex items-center gap-2 font-bold text-slate-700">
+          <Sparkles className="w-4 h-4 text-emerald-600" />
+          <span>Indikator Persentase Otomatis (1 Jam = {periodMinutes} Menit):</span>
+        </div>
+        <div className="flex items-center flex-wrap gap-2 text-[11px] font-bold">
+          <span className="px-2.5 py-1 rounded-lg bg-emerald-100 text-emerald-800 border border-emerald-300 flex items-center gap-1.5">
+            <span className="w-2 h-2 rounded-full bg-emerald-600" />
+            🟩 ≥ 95% (Sangat Baik)
+          </span>
+          <span className="px-2.5 py-1 rounded-lg bg-amber-100 text-amber-800 border border-amber-300 flex items-center gap-1.5">
+            <span className="w-2 h-2 rounded-full bg-amber-600" />
+            🟨 85–94,9% (Cukup)
+          </span>
+          <span className="px-2.5 py-1 rounded-lg bg-orange-100 text-orange-800 border border-orange-300 flex items-center gap-1.5">
+            <span className="w-2 h-2 rounded-full bg-orange-600" />
+            🟧 70–84,9% (Perlu Perhatian)
+          </span>
+          <span className="px-2.5 py-1 rounded-lg bg-rose-100 text-rose-800 border border-rose-300 flex items-center gap-1.5">
+            <span className="w-2 h-2 rounded-full bg-rose-600" />
+            🟥 &lt; 70% (Kurang)
+          </span>
+        </div>
+      </div>
+
       {/* Table Container */}
       <div className="bg-white rounded-2xl border border-slate-200 shadow-md p-6 sm:p-8 printable-report">
         {/* Madrasah Header for report */}
@@ -343,16 +505,37 @@ export const WeeklyReportView: React.FC = () => {
               />
             </div>
             <div className="text-left sm:text-center">
-              <h2 className="text-xl sm:text-2xl font-black text-slate-900 uppercase tracking-wider">{settings.schoolName}</h2>
+              <h2 className="text-xl sm:text-2xl font-black text-slate-900 uppercase tracking-wider">
+                {settings.schoolName}
+              </h2>
               <p className="text-xs sm:text-sm font-semibold text-slate-600">{settings.subTitle}</p>
               <p className="text-[11px] text-slate-500">{settings.address}</p>
             </div>
           </div>
-          <h3 className="text-base font-extrabold text-slate-900 mt-3 underline">
+          <h3 className="text-base font-extrabold text-slate-900 mt-3 underline tracking-wide uppercase">
             REKAPITULASI ABSENSI GURU MINGGUAN
           </h3>
-          <p className="text-xs text-slate-600 mt-0.5">
-            Periode: {formatIndonesianDateShort(startDate)} s.d. {formatIndonesianDateShort(endDate)}
+          <p className="text-xs text-slate-700 mt-1 font-semibold flex items-center justify-center flex-wrap gap-2">
+            <span>
+              Periode:{' '}
+              <span className="font-extrabold text-slate-900">
+                {formatIndonesianDateShort(startDate)} s.d. {formatIndonesianDateShort(endDate)}
+              </span>
+            </span>
+            <span>|</span>
+            <span>
+              Tahun Ajaran:{' '}
+              <span className="font-extrabold text-slate-900">{settings.academicYear}</span>
+            </span>
+            <span>|</span>
+            <span>
+              Semester:{' '}
+              <span className="font-extrabold text-slate-900">{settings.semester}</span>
+            </span>
+            <span>|</span>
+            <span className="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 text-[11px] font-extrabold">
+              1 Jam = {periodMinutes} Menit
+            </span>
           </p>
         </div>
 
@@ -384,37 +567,43 @@ export const WeeklyReportView: React.FC = () => {
                     {row.teacherName}
                   </td>
                   <td className="border border-slate-300 py-2 px-2 text-center font-semibold text-emerald-800">
-                    {row.hadir}
+                    {row.hadir > 0 ? `${row.hadir} Jam` : '0'}
                   </td>
-                  <td className="border border-slate-300 py-2 px-2 text-center text-amber-700">
-                    {row.terlambat}
+                  <td className="border border-slate-300 py-2 px-2 text-center text-amber-700 font-medium">
+                    {row.terlambat > 0
+                      ? `${row.terlambat} Jam${
+                          row.terlambatMnt && row.terlambatMnt > 0 ? ` (${row.terlambatMnt} mnt)` : ''
+                        }`
+                      : '0'}
                   </td>
                   <td className="border border-slate-300 py-2 px-2 text-center text-sky-700">
-                    {row.izin}
+                    {row.izin > 0 ? `${row.izin} Jam` : '0'}
                   </td>
                   <td className="border border-slate-300 py-2 px-2 text-center text-violet-700">
-                    {row.sakit}
+                    {row.sakit > 0 ? `${row.sakit} Jam` : '0'}
                   </td>
                   <td className="border border-slate-300 py-2 px-2 text-center text-teal-700">
-                    {row.dinas}
+                    {row.dinas > 0 ? `${row.dinas} Jam` : '0'}
                   </td>
                   <td className="border border-slate-300 py-2 px-2 text-center text-rose-700 font-bold">
-                    {row.tidakHadir}
+                    {row.tidakHadir > 0 ? `${row.tidakHadir} Jam` : '0'}
                   </td>
                   <td className="border border-slate-300 py-2 px-2 text-center font-extrabold text-slate-900">
-                    {row.total}
+                    {row.total > 0 ? `${row.total} Jam (${row.total * periodMinutes} mnt)` : '-'}
                   </td>
                   <td className="border border-slate-300 py-2 px-2 text-center font-extrabold">
                     <span
-                      className={`inline-block px-2 py-0.5 rounded-sm ${
-                        row.percentage >= 90
+                      className={`inline-block px-2.5 py-0.5 rounded-md font-mono ${
+                        row.percentage >= 95
                           ? 'bg-emerald-100 text-emerald-800'
-                          : row.percentage >= 75
+                          : row.percentage >= 85
                           ? 'bg-amber-100 text-amber-800'
+                          : row.percentage >= 70
+                          ? 'bg-orange-100 text-orange-800'
                           : 'bg-rose-100 text-rose-800'
                       }`}
                     >
-                      {row.percentage.toFixed(1)}%
+                      {row.percentage.toFixed(1).replace('.', ',')}%
                     </span>
                   </td>
                 </tr>
@@ -426,28 +615,28 @@ export const WeeklyReportView: React.FC = () => {
                   TOTAL KESELURUHAN
                 </td>
                 <td className="border border-slate-900 py-2.5 px-2 text-center text-emerald-900">
-                  {overall.hadir}
+                  {overall.hadir} Jam
                 </td>
                 <td className="border border-slate-900 py-2.5 px-2 text-center text-amber-900">
-                  {overall.terlambat}
+                  {overall.terlambat} Jam{overall.terlambatMnt ? ` (${overall.terlambatMnt} mnt)` : ''}
                 </td>
                 <td className="border border-slate-900 py-2.5 px-2 text-center text-sky-900">
-                  {overall.izin}
+                  {overall.izin} Jam
                 </td>
                 <td className="border border-slate-900 py-2.5 px-2 text-center text-violet-900">
-                  {overall.sakit}
+                  {overall.sakit} Jam
                 </td>
                 <td className="border border-slate-900 py-2.5 px-2 text-center text-teal-900">
-                  {overall.dinas}
+                  {overall.dinas} Jam
                 </td>
                 <td className="border border-slate-900 py-2.5 px-2 text-center text-rose-900">
-                  {overall.tidakHadir}
+                  {overall.tidakHadir} Jam
                 </td>
                 <td className="border border-slate-900 py-2.5 px-2 text-center">
-                  {overall.total}
+                  {overall.total} Jam ({overall.total * periodMinutes} mnt)
                 </td>
-                <td className="border border-slate-900 py-2.5 px-2 text-center font-black">
-                  {overall.percentage.toFixed(1)}%
+                <td className="border border-slate-900 py-2.5 px-2 text-center font-black text-sm">
+                  {overall.percentage.toFixed(1).replace('.', ',')}%
                 </td>
               </tr>
             </tfoot>
