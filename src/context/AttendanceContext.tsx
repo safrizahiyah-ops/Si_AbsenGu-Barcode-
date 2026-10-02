@@ -23,6 +23,8 @@ import {
   buildManualPeriodChoices,
   ManualPeriodChoice,
   parseTimeToMinutes,
+  minutesToTimeString,
+  formatTimeSlotString,
   parsePeriodString,
 } from '../constants/schedule';
 
@@ -75,6 +77,12 @@ interface AttendanceContextType {
   deleteSubject: (id: string) => void;
   // Periods CRUD
   addPeriodSlot: (slot: PeriodSlot) => { success: boolean; error?: string };
+  updatePeriodSlot: (
+    slotId: string,
+    updatedData: Partial<PeriodSlot>,
+    options?: { cascadeSubsequent?: boolean }
+  ) => { success: boolean; error?: string };
+  updateAllPeriodSlots: (slots: PeriodSlot[]) => { success: boolean; error?: string };
   deletePeriodSlot: (id: string) => { success: boolean; error?: string };
   resetPeriodSlots: () => void;
   updateSettings: (newSettings: Partial<AppSettings>) => void;
@@ -231,6 +239,105 @@ export const AttendanceProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     updated.sort((a, b) => parseTimeToMinutes(a.startTime) - parseTimeToMinutes(b.startTime));
     setPeriodSlots(updated);
     showToast(`Jam Pelajaran ${code} (${newSlot.timeSlotString} WIB) berhasil ditambahkan!`, 'success');
+    return { success: true };
+  };
+
+  const updatePeriodSlot = (
+    slotId: string,
+    updatedData: Partial<PeriodSlot>,
+    options?: { cascadeSubsequent?: boolean }
+  ): { success: boolean; error?: string } => {
+    const targetIndex = periodSlots.findIndex((s) => s.id === slotId);
+    if (targetIndex === -1) {
+      return { success: false, error: 'Jam pelajaran tidak ditemukan' };
+    }
+
+    const currentTarget = periodSlots[targetIndex];
+    const newStartTime = updatedData.startTime !== undefined ? updatedData.startTime : currentTarget.startTime;
+    const newEndTime = updatedData.endTime !== undefined ? updatedData.endTime : currentTarget.endTime;
+    const startMins = parseTimeToMinutes(newStartTime);
+    const endMins = parseTimeToMinutes(newEndTime);
+
+    if (isNaN(startMins) || isNaN(endMins) || startMins >= endMins) {
+      const err = 'Waktu mulai harus lebih awal daripada waktu selesai!';
+      showToast(err, 'error');
+      return { success: false, error: err };
+    }
+
+    const timeSlotString = formatTimeSlotString(newStartTime, newEndTime);
+
+    const updatedTarget: PeriodSlot = {
+      ...currentTarget,
+      ...updatedData,
+      startTime: newStartTime,
+      endTime: newEndTime,
+      timeSlotString,
+    };
+
+    let newSlots = [...periodSlots];
+    newSlots[targetIndex] = updatedTarget;
+
+    // If cascadeSubsequent is true, adjust all subsequent slots in sequence
+    if (options?.cascadeSubsequent) {
+      let prevEndTime = newEndTime;
+      for (let i = targetIndex + 1; i < newSlots.length; i++) {
+        const slot = newSlots[i];
+        const prevSlotEndMins = parseTimeToMinutes(prevEndTime);
+        const slotStartMins = parseTimeToMinutes(slot.startTime);
+        const slotEndMins = parseTimeToMinutes(slot.endTime);
+        const duration = Math.max(10, slotEndMins - slotStartMins);
+
+        const shiftedStartMins = prevSlotEndMins;
+        const shiftedEndMins = shiftedStartMins + duration;
+
+        const shiftedStartStr = minutesToTimeString(shiftedStartMins);
+        const shiftedEndStr = minutesToTimeString(shiftedEndMins);
+
+        newSlots[i] = {
+          ...slot,
+          startTime: shiftedStartStr,
+          endTime: shiftedEndStr,
+          timeSlotString: formatTimeSlotString(shiftedStartStr, shiftedEndStr),
+        };
+        prevEndTime = shiftedEndStr;
+      }
+    }
+
+    // Keep chronological order
+    newSlots.sort((a, b) => parseTimeToMinutes(a.startTime) - parseTimeToMinutes(b.startTime));
+    setPeriodSlots(newSlots);
+
+    showToast(
+      `Rentang Jam ${updatedTarget.code} berhasil diperbarui (${updatedTarget.timeSlotString} WIB)${
+        options?.cascadeSubsequent ? ' & jam berikutnya disesuaikan' : ''
+      }!`,
+      'success'
+    );
+    return { success: true };
+  };
+
+  const updateAllPeriodSlots = (
+    newSlots: PeriodSlot[]
+  ): { success: boolean; error?: string } => {
+    // Validate each slot
+    for (const slot of newSlots) {
+      const s = parseTimeToMinutes(slot.startTime);
+      const e = parseTimeToMinutes(slot.endTime);
+      if (isNaN(s) || isNaN(e) || s >= e) {
+        const err = `Jam ${slot.code}: Jam mulai (${slot.startTime}) harus lebih awal dari jam selesai (${slot.endTime})!`;
+        showToast(err, 'error');
+        return { success: false, error: err };
+      }
+    }
+
+    const formatted = newSlots.map((slot) => ({
+      ...slot,
+      timeSlotString: formatTimeSlotString(slot.startTime, slot.endTime),
+    }));
+    formatted.sort((a, b) => parseTimeToMinutes(a.startTime) - parseTimeToMinutes(b.startTime));
+
+    setPeriodSlots(formatted);
+    showToast('Semua perubahan rentang jam pelajaran berhasil disimpan!', 'success');
     return { success: true };
   };
 
@@ -560,6 +667,8 @@ export const AttendanceProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         updateSubject,
         deleteSubject,
         addPeriodSlot,
+        updatePeriodSlot,
+        updateAllPeriodSlots,
         deletePeriodSlot,
         resetPeriodSlots,
         updateSettings,

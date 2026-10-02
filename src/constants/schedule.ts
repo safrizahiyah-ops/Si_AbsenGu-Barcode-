@@ -462,8 +462,23 @@ export interface PeriodCurrentState {
 }
 
 export function parseTimeToMinutes(timeStr: string): number {
-  const [hours, minutes] = timeStr.split(':').map(Number);
-  return hours * 60 + minutes;
+  if (!timeStr) return 0;
+  const separator = timeStr.includes(':') ? ':' : '.';
+  const [hours, minutes] = timeStr.split(separator).map(Number);
+  return (isNaN(hours) ? 0 : hours) * 60 + (isNaN(minutes) ? 0 : minutes);
+}
+
+export function minutesToTimeString(minutes: number): string {
+  const normalized = Math.max(0, minutes) % (24 * 60);
+  const h = Math.floor(normalized / 60);
+  const m = normalized % 60;
+  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+}
+
+export function formatTimeSlotString(start: string, end: string): string {
+  const cleanStart = start.replace(':', '.');
+  const cleanEnd = end.replace(':', '.');
+  return `${cleanStart} – ${cleanEnd}`;
 }
 
 export function getCurrentPeriodState(
