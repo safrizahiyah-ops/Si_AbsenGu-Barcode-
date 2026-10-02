@@ -10,7 +10,7 @@ import { PeriodSlot, PeriodId } from '../types';
 import { Clock, AlertCircle, ArrowRight, Play, CheckCircle2, Coffee, Sparkles } from 'lucide-react';
 
 export const PeriodClockBanner: React.FC = () => {
-  const { currentTime, setIsFormModalOpen, setEditingRecord } = useAttendance();
+  const { currentTime, setIsFormModalOpen, setEditingRecord, periodSlots } = useAttendance();
   const [simulatedTimeStr, setSimulatedTimeStr] = useState<string>('');
   const [isSimulating, setIsSimulating] = useState<boolean>(false);
 
@@ -25,7 +25,7 @@ export const PeriodClockBanner: React.FC = () => {
     return d;
   }, [currentTime, isSimulating, simulatedTimeStr]);
 
-  const periodState = getCurrentPeriodState(effectiveDate);
+  const periodState = getCurrentPeriodState(effectiveDate, periodSlots);
   const currentMinutes = effectiveDate.getHours() * 60 + effectiveDate.getMinutes();
 
   const handleStartAttendanceForPeriod = (periodId?: PeriodId) => {
@@ -184,7 +184,7 @@ export const PeriodClockBanner: React.FC = () => {
 
         {/* Period Pills Horizontal Grid */}
         <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-11 gap-2">
-          {ALL_PERIOD_SLOTS.map((slot) => {
+          {periodSlots.map((slot) => {
             const visual = getSlotVisualStatus(slot, currentMinutes);
             const isBreak = slot.isBreak;
             const isSelectedActive = periodState.currentSlot?.id === slot.id;

@@ -25,6 +25,9 @@ export const AttendanceModal: React.FC = () => {
     classes,
     subjects,
     settings,
+    manualPeriodChoices,
+    periodIds,
+    validAttendancePeriods,
     addAttendanceRecord,
     updateAttendanceRecord,
   } = useAttendance();
@@ -39,6 +42,7 @@ export const AttendanceModal: React.FC = () => {
   const [subject, setSubject] = useState<string>('');
   const [className, setClassName] = useState<string>('');
   const [status, setStatus] = useState<AttendanceStatus>('HADIR');
+  const [lateMinutes, setLateMinutes] = useState<number>(10);
   const [notes, setNotes] = useState<string>('');
   const [picketTeacher, setPicketTeacher] = useState<string>(settings.currentPicketTeacher);
   const [validationError, setValidationError] = useState<string | null>(null);
@@ -73,6 +77,7 @@ export const AttendanceModal: React.FC = () => {
           setSubject(editingRecord.subject);
           setClassName(editingRecord.className);
           setStatus(editingRecord.status);
+          setLateMinutes(editingRecord.lateMinutes ?? 10);
           setNotes(editingRecord.notes || '');
           setPicketTeacher(editingRecord.picketTeacher || settings.currentPicketTeacher);
         } else {
@@ -97,6 +102,7 @@ export const AttendanceModal: React.FC = () => {
           setSubject('');
           setClassName(classes[0]?.name || 'X IPA');
           setStatus('HADIR');
+          setLateMinutes(10);
           setNotes('');
           setPicketTeacher(settings.currentPicketTeacher);
         }
@@ -108,22 +114,22 @@ export const AttendanceModal: React.FC = () => {
 
   // Selected Manual Period Range details
   const periodRange = useMemo(() => {
-    return getPeriodRangeDetails(startPeriod, endPeriod);
-  }, [startPeriod, endPeriod]);
+    return getPeriodRangeDetails(startPeriod, endPeriod, validAttendancePeriods);
+  }, [startPeriod, endPeriod, validAttendancePeriods]);
 
   const handleStartPeriodChange = (val: PeriodId) => {
     setStartPeriod(val);
-    const startIdx = PERIOD_IDS.indexOf(val);
-    const endIdx = PERIOD_IDS.indexOf(endPeriod);
-    if (endIdx < startIdx) {
+    const startIdx = periodIds.indexOf(val);
+    const endIdx = periodIds.indexOf(endPeriod);
+    if (startIdx !== -1 && endIdx !== -1 && endIdx < startIdx) {
       setEndPeriod(val);
     }
   };
 
   const handleEndPeriodChange = (val: PeriodId) => {
-    const startIdx = PERIOD_IDS.indexOf(startPeriod);
-    const endIdx = PERIOD_IDS.indexOf(val);
-    if (endIdx < startIdx) {
+    const startIdx = periodIds.indexOf(startPeriod);
+    const endIdx = periodIds.indexOf(val);
+    if (startIdx !== -1 && endIdx !== -1 && endIdx < startIdx) {
       setStartPeriod(val);
     }
     setEndPeriod(val);
@@ -192,6 +198,7 @@ export const AttendanceModal: React.FC = () => {
         subject: subject.trim(),
         className: className.trim(),
         status,
+        lateMinutes: status === 'TERLAMBAT' ? Number(lateMinutes) || 10 : 0,
         notes: notes.trim(),
         picketTeacher: picketTeacher.trim() || settings.currentPicketTeacher,
       });
@@ -213,6 +220,7 @@ export const AttendanceModal: React.FC = () => {
         subject: subject.trim(),
         className: className.trim(),
         status,
+        lateMinutes: status === 'TERLAMBAT' ? Number(lateMinutes) || 10 : 0,
         notes: notes.trim(),
         picketTeacher: picketTeacher.trim() || settings.currentPicketTeacher,
       });
@@ -317,7 +325,7 @@ export const AttendanceModal: React.FC = () => {
                   onChange={(e) => handleStartPeriodChange(e.target.value as PeriodId)}
                   className="w-full px-3 py-2.5 rounded-xl border border-slate-300 focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 text-xs sm:text-sm font-bold bg-white"
                 >
-                  {MANUAL_PERIOD_CHOICES.map((choice) => (
+                  {manualPeriodChoices.map((choice) => (
                     <option key={choice.id} value={choice.id}>
                       {choice.label}
                     </option>
@@ -336,7 +344,7 @@ export const AttendanceModal: React.FC = () => {
                   onChange={(e) => handleEndPeriodChange(e.target.value as PeriodId)}
                   className="w-full px-3 py-2.5 rounded-xl border border-slate-300 focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 text-xs sm:text-sm font-bold bg-white"
                 >
-                  {MANUAL_PERIOD_CHOICES.map((choice) => (
+                  {manualPeriodChoices.map((choice) => (
                     <option key={choice.id} value={choice.id}>
                       {choice.label}
                     </option>
@@ -573,6 +581,35 @@ export const AttendanceModal: React.FC = () => {
                 );
               })}
             </div>
+
+            {/* Input Menit Keterlambatan jika TERLAMBAT */}
+            {status === 'TERLAMBAT' && (
+              <div className="mt-3 p-3.5 rounded-xl bg-amber-50/80 border border-amber-200 animate-fadeIn space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-bold text-amber-900 flex items-center gap-1.5">
+                    <Clock className="w-3.5 h-3.5 text-amber-600" />
+                    <span>Waktu Keterlambatan:</span>
+                  </label>
+                  <span className="text-[11px] font-bold text-amber-700">
+                    Otomatis mengurangi Jam Efektif
+                  </span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="number"
+                    min={1}
+                    max={240}
+                    value={lateMinutes}
+                    onChange={(e) => setLateMinutes(Math.max(1, Number(e.target.value) || 0))}
+                    className="w-24 px-3 py-1.5 rounded-lg border border-amber-300 bg-white font-bold text-slate-800 text-sm focus:ring-2 focus:ring-amber-500"
+                  />
+                  <span className="text-xs font-semibold text-amber-900">Menit keterlambatan</span>
+                </div>
+                <p className="text-[11px] text-amber-700">
+                  Keterlambatan ini akan otomatis memotong jam mengajar efektif pada Rekapitulasi Harian.
+                </p>
+              </div>
+            )}
           </div>
 
           {/* 7. Keterangan */}

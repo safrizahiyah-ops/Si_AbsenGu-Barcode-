@@ -1,6 +1,6 @@
 import { PeriodSlot, PeriodId, AttendanceStatus } from '../types';
 
-export const ALL_PERIOD_SLOTS: PeriodSlot[] = [
+export const DEFAULT_ALL_PERIOD_SLOTS: PeriodSlot[] = [
   {
     id: 'I',
     code: 'I',
@@ -102,12 +102,91 @@ export const ALL_PERIOD_SLOTS: PeriodSlot[] = [
   },
 ];
 
-// Valid periods that can be selected for attendance (excludes break periods)
-export const VALID_ATTENDANCE_PERIODS: PeriodSlot[] = ALL_PERIOD_SLOTS.filter(
-  (slot) => !slot.isBreak
-);
+// Presets for additional manual periods up to Period 13
+export const PRESET_ADDITIONAL_PERIODS: PeriodSlot[] = [
+  {
+    id: 'X',
+    code: 'X',
+    name: 'Jam Pelajaran X (Ke-10)',
+    startTime: '14:40',
+    endTime: '15:20',
+    isBreak: false,
+    timeSlotString: '14.40 – 15.20',
+  },
+  {
+    id: 'XI',
+    code: 'XI',
+    name: 'Jam Pelajaran XI (Ke-11)',
+    startTime: '15:20',
+    endTime: '16:00',
+    isBreak: false,
+    timeSlotString: '15.20 – 16.00',
+  },
+  {
+    id: 'XII',
+    code: 'XII',
+    name: 'Jam Pelajaran XII (Ke-12)',
+    startTime: '16:00',
+    endTime: '16:40',
+    isBreak: false,
+    timeSlotString: '16.00 – 16.40',
+  },
+  {
+    id: 'XIII',
+    code: 'XIII',
+    name: 'Jam Pelajaran XIII (Ke-13)',
+    startTime: '16:40',
+    endTime: '17:20',
+    isBreak: false,
+    timeSlotString: '16.40 – 17.20',
+  },
+];
 
-export const PERIOD_IDS: PeriodId[] = ['I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX'];
+export const ALL_PERIOD_SLOTS: PeriodSlot[] = [...DEFAULT_ALL_PERIOD_SLOTS];
+
+// Valid periods that can be selected for attendance (excludes break periods)
+export const VALID_ATTENDANCE_PERIODS: PeriodSlot[] = [
+  ...DEFAULT_ALL_PERIOD_SLOTS.filter((slot) => !slot.isBreak),
+  ...PRESET_ADDITIONAL_PERIODS,
+];
+
+export const PERIOD_IDS: PeriodId[] = [
+  'I',
+  'II',
+  'III',
+  'IV',
+  'V',
+  'VI',
+  'VII',
+  'VIII',
+  'IX',
+  'X',
+  'XI',
+  'XII',
+  'XIII',
+];
+
+export const ROMAN_INDEX_ORDER: Record<string, number> = {
+  I: 1,
+  II: 2,
+  III: 3,
+  IV: 4,
+  V: 5,
+  VI: 6,
+  VII: 7,
+  VIII: 8,
+  IX: 9,
+  X: 10,
+  XI: 11,
+  XII: 12,
+  XIII: 13,
+};
+
+export function getPeriodOrderNumber(periodCodeOrRange?: string): number {
+  if (!periodCodeOrRange) return 99;
+  const range = parsePeriodString(periodCodeOrRange);
+  return ROMAN_INDEX_ORDER[range.start] || 99;
+}
 
 // Pilihan manual untuk kolom "Mulai Jam" dan "Sampai Jam"
 export interface ManualPeriodChoice {
@@ -117,6 +196,19 @@ export interface ManualPeriodChoice {
   startTime: string;
   endTime: string;
   label: string;
+}
+
+export function buildManualPeriodChoices(slots: PeriodSlot[]): ManualPeriodChoice[] {
+  return slots
+    .filter((slot) => !slot.isBreak)
+    .map((slot) => ({
+      id: slot.id as PeriodId,
+      code: slot.code,
+      name: slot.name,
+      startTime: slot.startTime,
+      endTime: slot.endTime,
+      label: `Jam ${slot.code} : (${slot.startTime.replace(':', ' : ')})`,
+    }));
 }
 
 export const MANUAL_PERIOD_CHOICES: ManualPeriodChoice[] = [
@@ -192,10 +284,46 @@ export const MANUAL_PERIOD_CHOICES: ManualPeriodChoice[] = [
     endTime: '14:40',
     label: 'Jam IX : (14 : 00)',
   },
+  {
+    id: 'X',
+    code: 'X',
+    name: 'Jam Pelajaran X (Ke-10)',
+    startTime: '14:40',
+    endTime: '15:20',
+    label: 'Jam X : (14 : 40)',
+  },
+  {
+    id: 'XI',
+    code: 'XI',
+    name: 'Jam Pelajaran XI (Ke-11)',
+    startTime: '15:20',
+    endTime: '16:00',
+    label: 'Jam XI : (15 : 20)',
+  },
+  {
+    id: 'XII',
+    code: 'XII',
+    name: 'Jam Pelajaran XII (Ke-12)',
+    startTime: '16:00',
+    endTime: '16:40',
+    label: 'Jam XII : (16 : 00)',
+  },
+  {
+    id: 'XIII',
+    code: 'XIII',
+    name: 'Jam Pelajaran XIII (Ke-13)',
+    startTime: '16:40',
+    endTime: '17:20',
+    label: 'Jam XIII : (16 : 40)',
+  },
 ];
 
 // Menghitung rentang jam manual (Mulai Jam s/d Sampai Jam)
-export function getPeriodRangeDetails(startId: PeriodId, endId: PeriodId): {
+export function getPeriodRangeDetails(
+  startId: PeriodId,
+  endId: PeriodId,
+  availableSlots: PeriodSlot[] = VALID_ATTENDANCE_PERIODS
+): {
   periodString: string;
   timeSlotString: string;
   startSlot: PeriodSlot;
@@ -205,14 +333,17 @@ export function getPeriodRangeDetails(startId: PeriodId, endId: PeriodId): {
   const startIdx = PERIOD_IDS.indexOf(startId);
   const endIdx = PERIOD_IDS.indexOf(endId);
 
-  const effectiveStartId = startIdx <= endIdx ? startId : endId;
-  const effectiveEndId = startIdx <= endIdx ? endId : startId;
+  const effectiveStartId = startIdx !== -1 && endIdx !== -1 && startIdx > endIdx ? endId : startId;
+  const effectiveEndId = startIdx !== -1 && endIdx !== -1 && startIdx > endIdx ? startId : endId;
 
   const startSlot =
+    availableSlots.find((p) => p.id === effectiveStartId) ||
     VALID_ATTENDANCE_PERIODS.find((p) => p.id === effectiveStartId) ||
     VALID_ATTENDANCE_PERIODS[0];
   const endSlot =
-    VALID_ATTENDANCE_PERIODS.find((p) => p.id === effectiveEndId) || startSlot;
+    availableSlots.find((p) => p.id === effectiveEndId) ||
+    VALID_ATTENDANCE_PERIODS.find((p) => p.id === effectiveEndId) ||
+    startSlot;
 
   const periodString =
     effectiveStartId === effectiveEndId
@@ -220,8 +351,10 @@ export function getPeriodRangeDetails(startId: PeriodId, endId: PeriodId): {
       : `${effectiveStartId} - ${effectiveEndId}`;
 
   const timeSlotString = `${startSlot.startTime.replace(':', '.')} – ${endSlot.endTime.replace(':', '.')}`;
+  const pStartIdx = PERIOD_IDS.indexOf(effectiveStartId);
+  const pEndIdx = PERIOD_IDS.indexOf(effectiveEndId);
   const durationPeriods =
-    Math.abs(PERIOD_IDS.indexOf(effectiveEndId) - PERIOD_IDS.indexOf(effectiveStartId)) + 1;
+    pStartIdx !== -1 && pEndIdx !== -1 ? Math.abs(pEndIdx - pStartIdx) + 1 : 1;
 
   return {
     periodString,
@@ -333,12 +466,16 @@ export function parseTimeToMinutes(timeStr: string): number {
   return hours * 60 + minutes;
 }
 
-export function getCurrentPeriodState(currentTime: Date = new Date()): PeriodCurrentState {
+export function getCurrentPeriodState(
+  currentTime: Date = new Date(),
+  slots: PeriodSlot[] = ALL_PERIOD_SLOTS
+): PeriodCurrentState {
   const currentMinutes = currentTime.getHours() * 60 + currentTime.getMinutes();
+  const effectiveSlots = slots && slots.length > 0 ? slots : ALL_PERIOD_SLOTS;
 
-  const firstSlotMinutes = parseTimeToMinutes(ALL_PERIOD_SLOTS[0].startTime);
+  const firstSlotMinutes = parseTimeToMinutes(effectiveSlots[0].startTime);
   const lastSlotMinutes = parseTimeToMinutes(
-    ALL_PERIOD_SLOTS[ALL_PERIOD_SLOTS.length - 1].endTime
+    effectiveSlots[effectiveSlots.length - 1].endTime
   );
 
   // Before school starts
@@ -346,12 +483,12 @@ export function getCurrentPeriodState(currentTime: Date = new Date()): PeriodCur
     const minutesToFirst = firstSlotMinutes - currentMinutes;
     return {
       currentSlot: null,
-      nextSlot: ALL_PERIOD_SLOTS[0],
+      nextSlot: effectiveSlots[0],
       statusType: minutesToFirst <= 15 ? 'upcoming_soon' : 'before_school',
       timeRemainingMinutes: 0,
       minutesToNext: minutesToFirst,
       displayText: 'Belum Dimulai (Sebelum Jam I)',
-      timeSlotText: `Mulai pukul ${ALL_PERIOD_SLOTS[0].startTime} WIB`,
+      timeSlotText: `Mulai pukul ${effectiveSlots[0].startTime} WIB`,
       isBreak: false,
     };
   }
@@ -365,20 +502,20 @@ export function getCurrentPeriodState(currentTime: Date = new Date()): PeriodCur
       timeRemainingMinutes: 0,
       minutesToNext: 0,
       displayText: 'Kegiatan Belajar Mengajar Selesai',
-      timeSlotText: `Berakhir pukul ${ALL_PERIOD_SLOTS[ALL_PERIOD_SLOTS.length - 1].endTime} WIB`,
+      timeSlotText: `Berakhir pukul ${effectiveSlots[effectiveSlots.length - 1].endTime} WIB`,
       isBreak: false,
     };
   }
 
   // Find current slot
-  for (let i = 0; i < ALL_PERIOD_SLOTS.length; i++) {
-    const slot = ALL_PERIOD_SLOTS[i];
+  for (let i = 0; i < effectiveSlots.length; i++) {
+    const slot = effectiveSlots[i];
     const startMins = parseTimeToMinutes(slot.startTime);
     const endMins = parseTimeToMinutes(slot.endTime);
 
     if (currentMinutes >= startMins && currentMinutes < endMins) {
       const timeRemaining = endMins - currentMinutes;
-      const nextSlot = i < ALL_PERIOD_SLOTS.length - 1 ? ALL_PERIOD_SLOTS[i + 1] : null;
+      const nextSlot = i < effectiveSlots.length - 1 ? effectiveSlots[i + 1] : null;
       const isEndingSoon = timeRemaining <= 5;
 
       return {
@@ -396,7 +533,7 @@ export function getCurrentPeriodState(currentTime: Date = new Date()): PeriodCur
 
   return {
     currentSlot: null,
-    nextSlot: ALL_PERIOD_SLOTS[0],
+    nextSlot: effectiveSlots[0],
     statusType: 'before_school',
     timeRemainingMinutes: 0,
     minutesToNext: 0,

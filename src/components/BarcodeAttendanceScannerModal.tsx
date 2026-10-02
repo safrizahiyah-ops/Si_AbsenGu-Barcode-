@@ -44,6 +44,9 @@ export const BarcodeAttendanceScannerModal: React.FC<BarcodeAttendanceScannerMod
     addAttendanceRecord,
     records,
     showToast,
+    manualPeriodChoices,
+    periodIds,
+    validAttendancePeriods,
   } = useAttendance();
 
   // Scanner states
@@ -65,22 +68,22 @@ export const BarcodeAttendanceScannerModal: React.FC<BarcodeAttendanceScannerMod
 
   // Manual period range calculation
   const periodRange = React.useMemo(() => {
-    return getPeriodRangeDetails(scannedStartPeriod, scannedEndPeriod);
-  }, [scannedStartPeriod, scannedEndPeriod]);
+    return getPeriodRangeDetails(scannedStartPeriod, scannedEndPeriod, validAttendancePeriods);
+  }, [scannedStartPeriod, scannedEndPeriod, validAttendancePeriods]);
 
   const handleStartPeriodChange = (val: PeriodId) => {
     setScannedStartPeriod(val);
-    const startIdx = PERIOD_IDS.indexOf(val);
-    const endIdx = PERIOD_IDS.indexOf(scannedEndPeriod);
-    if (endIdx < startIdx) {
+    const startIdx = periodIds.indexOf(val);
+    const endIdx = periodIds.indexOf(scannedEndPeriod);
+    if (startIdx !== -1 && endIdx !== -1 && endIdx < startIdx) {
       setScannedEndPeriod(val);
     }
   };
 
   const handleEndPeriodChange = (val: PeriodId) => {
-    const startIdx = PERIOD_IDS.indexOf(scannedStartPeriod);
-    const endIdx = PERIOD_IDS.indexOf(val);
-    if (endIdx < startIdx) {
+    const startIdx = periodIds.indexOf(scannedStartPeriod);
+    const endIdx = periodIds.indexOf(val);
+    if (startIdx !== -1 && endIdx !== -1 && endIdx < startIdx) {
       setScannedStartPeriod(val);
     }
     setScannedEndPeriod(val);
@@ -262,6 +265,7 @@ export const BarcodeAttendanceScannerModal: React.FC<BarcodeAttendanceScannerMod
       subject: matchedTeacher.primarySubject || 'Mata Pelajaran',
       className: scannedClass || 'X IPA',
       status: finalStatus,
+      lateMinutes: finalStatus === 'TERLAMBAT' ? 10 : 0,
       notes: notes.trim() || 'Dicatat via pemindai barcode kartu',
       picketTeacher: settings.currentPicketTeacher,
     });
@@ -340,7 +344,7 @@ export const BarcodeAttendanceScannerModal: React.FC<BarcodeAttendanceScannerMod
                   onChange={(e) => handleStartPeriodChange(e.target.value as PeriodId)}
                   className="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded-lg font-bold text-slate-800 text-xs focus:ring-2 focus:ring-emerald-500"
                 >
-                  {MANUAL_PERIOD_CHOICES.map((choice) => (
+                  {manualPeriodChoices.map((choice) => (
                     <option key={choice.id} value={choice.id}>
                       {choice.label}
                     </option>
@@ -356,7 +360,7 @@ export const BarcodeAttendanceScannerModal: React.FC<BarcodeAttendanceScannerMod
                   onChange={(e) => handleEndPeriodChange(e.target.value as PeriodId)}
                   className="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded-lg font-bold text-slate-800 text-xs focus:ring-2 focus:ring-emerald-500"
                 >
-                  {MANUAL_PERIOD_CHOICES.map((choice) => (
+                  {manualPeriodChoices.map((choice) => (
                     <option key={choice.id} value={choice.id}>
                       {choice.label}
                     </option>

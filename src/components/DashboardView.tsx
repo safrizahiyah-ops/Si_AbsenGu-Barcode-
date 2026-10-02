@@ -39,6 +39,7 @@ export const DashboardView: React.FC = () => {
     setIsFormModalOpen,
     setIsBarcodeScannerOpen,
     setEditingRecord,
+    periodIds,
   } = useAttendance();
 
   const today = getTodayDateString();
@@ -86,9 +87,9 @@ export const DashboardView: React.FC = () => {
     };
   }, [todayRecords, teachers.length]);
 
-  // Distribution per period (Jam I to Jam IX) for today
+  // Distribution per period for today
   const periodDistribution = useMemo(() => {
-    return PERIOD_IDS.map((pid) => {
+    return periodIds.map((pid) => {
       const recs = todayRecords.filter((r) => {
         if (r.period === pid) return true;
         const range = parsePeriodString(r.period);
@@ -107,7 +108,7 @@ export const DashboardView: React.FC = () => {
         absen,
       };
     });
-  }, [todayRecords]);
+  }, [todayRecords, periodIds]);
 
   // Attendance by Day (Last 7 days)
   const last7DaysData = useMemo(() => {
@@ -394,7 +395,7 @@ export const DashboardView: React.FC = () => {
           <div className="flex items-center justify-between mb-4">
             <div>
               <h3 className="font-bold text-slate-800 text-sm">Kehadiran per Jam Pelajaran</h3>
-              <p className="text-xs text-slate-500">Distribusi jam pelajaran I s.d. IX hari ini</p>
+              <p className="text-xs text-slate-500">Distribusi kehadiran per jam pelajaran hari ini</p>
             </div>
             <span className="text-xs font-semibold px-2.5 py-1 rounded-lg bg-emerald-50 text-emerald-800 border border-emerald-200">
               Hari Ini

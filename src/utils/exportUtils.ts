@@ -3,6 +3,21 @@ import autoTable from 'jspdf-autotable';
 import { AttendanceRecord, AppSettings } from '../types';
 import { formatIndonesianDate, formatIndonesianDateShort } from '../constants/schedule';
 
+export interface DailyRecapTeacherRow {
+  teacherId?: string;
+  teacherName: string;
+  totalJamMengajar: number; // in hours (e.g. 2 Jam)
+  totalJamMengajarMenit: number; // in minutes (e.g. 120 mnt)
+  hadirTepat: number; // in hours
+  terlambatMnt: number; // in minutes
+  izinSakit: number; // in hours
+  dinasTugas: number; // in hours
+  tidakHadir: number; // in hours
+  jamEfektifMnt: number; // in minutes
+  percentage: number; // % e.g. 91.7
+  hasData: boolean;
+}
+
 export interface WeeklyRecapRow {
   teacherName: string;
   hadir: number;
@@ -204,6 +219,184 @@ export function generateDailyReportPdf(
 
   // Save PDF
   doc.save(`Rekap-Absensi-Harian-${selectedDate}.pdf`);
+}
+
+/**
+ * Generates Daily Recap Table PDF (Same structure as weekly recap with effective teaching minutes and %)
+ */
+export function generateDailyRecapPdf(
+  rows: DailyRecapTeacherRow[],
+  selectedDate: string,
+  settings: AppSettings,
+  overall: {
+    totalJamMengajar: number;
+    hadirTepat: number;
+    terlambatMnt: number;
+    izinSakit: number;
+    dinasTugas: number;
+    tidakHadir: number;
+    jamEfektifMnt: number;
+    avgPercentage: number;
+  },
+  picketTeacherName?: string
+) {
+  const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
+  const formattedDate = formatIndonesianDate(selectedDate);
+
+  // KOP & JUDUL
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(16);
+  doc.text(settings.schoolName, 148, 14, { align: 'center' });
+
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(10);
+  doc.text(settings.subTitle, 148, 19, { align: 'center' });
+  doc.text(settings.address, 148, 23, { align: 'center' });
+
+  doc.setLineWidth(0.6);
+  doc.line(15, 26, 282, 26);
+
+  // Title & Subtitle
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(13);
+  doc.text('REKAPITULASI ABSENSI GURU HARIAN', 148, 33, { align: 'center' });
+
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(9.5);
+  doc.text(
+    `Tanggal: ${formattedDate}  |  Tahun Ajaran: ${settings.academicYear}  |  Semester: ${settings.semester}`,
+    148,
+    38,
+    { align: 'center' }
+  );
+
+  const tableData = rows.map((r, i) => [
+    i + 1,
+    r.teacherName,
+    `${r.totalJamMengajar} Jam`,
+    `${r.hadirTepat} Jam`,
+    `${r.terlambatMnt} mnt`,
+    `${r.izinSakit} Jam`,
+    `${r.dinasTugas} Jam`,
+    `${r.tidakHadir} Jam`,
+    `${r.jamEfektifMnt} mnt`,
+    `${r.percentage.toFixed(1).replace('.', ',')}%`,
+  ]);
+
+  const footerRow = [
+    'TOTAL',
+    'TOTAL KESELURUHAN',
+    `${overall.totalJamMengajar} Jam`,
+    `${overall.hadirTepat} Jam`,
+    `${overall.terlambatMnt} mnt`,
+    `${overall.izinSakit} Jam`,
+    `${overall.dinasTugas} Jam`,
+    `${overall.tidakHadir} Jam`,
+    `${overall.jamEfektifMnt} mnt`,
+    `${overall.avgPercentage.toFixed(1).replace('.', ',')}%`,
+  ];
+
+  autoTable(doc, {
+    startY: 42,
+    head: [
+      [
+        'No',
+        'Nama Guru',
+        'Total Jam Mengajar',
+        'Hadir Tepat',
+        'Terlambat (mnt)',
+        'Izin/Sakit',
+        'Dinas/Tugas',
+        'Tidak Hadir',
+        'Jam Efektif',
+        '% Kehadiran',
+      ],
+    ],
+    body: tableData,
+    foot: [footerRow],
+    theme: 'grid',
+    headStyles: {
+      fillColor: [5, 150, 105], // emerald-600
+      textColor: 255,
+      fontSize: 8.5,
+      fontStyle: 'bold',
+      halign: 'center',
+    },
+    footStyles: {
+      fillColor: [226, 232, 240], // slate-200
+      textColor: [15, 23, 42],
+      fontSize: 8.5,
+      fontStyle: 'bold',
+      halign: 'center',
+    },
+    styles: {
+      fontSize: 8.5,
+      cellPadding: 2,
+    },
+    columnStyles: {
+      0: { halign: 'center', cellWidth: 10 },
+      1: { cellWidth: 62 },
+      2: { halign: 'center', cellWidth: 26 },
+      3: { halign: 'center', cellWidth: 22 },
+      4: { halign: 'center', cellWidth: 24 },
+      5: { halign: 'center', cellWidth: 20 },
+      6: { halign: 'center', cellWidth: 22 },
+      7: { halign: 'center', cellWidth: 22 },
+      8: { halign: 'center', cellWidth: 24 },
+      9: { halign: 'center', cellWidth: 25 },
+    },
+    didParseCell: (data) => {
+      if (data.section === 'body' && data.column.index === 9) {
+        const rowObj = rows[data.row.index];
+        if (rowObj) {
+          if (rowObj.percentage >= 95) {
+            data.cell.styles.textColor = [5, 122, 85]; // green
+          } else if (rowObj.percentage >= 85) {
+            data.cell.styles.textColor = [180, 83, 9]; // amber
+          } else if (rowObj.percentage >= 70) {
+            data.cell.styles.textColor = [194, 65, 12]; // orange
+          } else {
+            data.cell.styles.textColor = [190, 18, 60]; // red
+          }
+          data.cell.styles.fontStyle = 'bold';
+        }
+      }
+    },
+  });
+
+  // Calculate position after table for signatures
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const lastY = (doc as any).lastAutoTable ? (doc as any).lastAutoTable.finalY : 120;
+  const signatureY = lastY + 12;
+
+  if (signatureY > 175) {
+    doc.addPage();
+  }
+
+  const actualSignY = signatureY > 175 ? 20 : signatureY;
+
+  // Signatures
+  doc.setFontSize(9);
+  doc.setFont('helvetica', 'normal');
+  doc.text('Mengetahui,', 25, actualSignY);
+  doc.text('Kepala Madrasah', 25, actualSignY + 5);
+
+  const picketDisplay = picketTeacherName || settings.currentPicketTeacher;
+  doc.text(`Darul Mahfudz, ${formatIndonesianDateShort(selectedDate)}`, 210, actualSignY);
+  doc.text('Koordinator Guru Piket', 210, actualSignY + 5);
+
+  // Names and NIP
+  doc.setFont('helvetica', 'bold');
+  doc.text(settings.headmasterName, 25, actualSignY + 24);
+  doc.setFont('helvetica', 'normal');
+  doc.text(`NIP: ${settings.headmasterNip}`, 25, actualSignY + 28);
+
+  doc.setFont('helvetica', 'bold');
+  doc.text(picketDisplay, 210, actualSignY + 24);
+  doc.setFont('helvetica', 'normal');
+  doc.text('Petugas Piket', 210, actualSignY + 28);
+
+  doc.save(`Rekap-Absensi-Guru-Harian-${selectedDate}.pdf`);
 }
 
 /**

@@ -1,4 +1,18 @@
-export type PeriodId = 'I' | 'II' | 'III' | 'IV' | 'V' | 'VI' | 'VII' | 'VIII' | 'IX';
+export type PeriodId =
+  | 'I'
+  | 'II'
+  | 'III'
+  | 'IV'
+  | 'V'
+  | 'VI'
+  | 'VII'
+  | 'VIII'
+  | 'IX'
+  | 'X'
+  | 'XI'
+  | 'XII'
+  | 'XIII'
+  | string;
 
 export type BreakId = 'ISTIRAHAT 1' | 'ISTIRAHAT 2';
 
@@ -34,6 +48,8 @@ export interface AttendanceRecord {
   status: AttendanceStatus;
   notes: string;
   picketTeacher: string;
+  lateMinutes?: number;
+  earlyLeaveMinutes?: number;
   createdAt: string;
   updatedAt?: string;
 }

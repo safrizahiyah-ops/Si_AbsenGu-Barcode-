@@ -31,6 +31,7 @@ export const AttendanceListView: React.FC = () => {
     deleteAttendanceRecord,
     setEditingRecord,
     setIsFormModalOpen,
+    manualPeriodChoices,
   } = useAttendance();
 
   // Search & Filter States
@@ -100,7 +101,8 @@ export const AttendanceListView: React.FC = () => {
         const getPeriodOrder = (p: string) => {
           const range = parsePeriodString(p);
           const periodOrder: Record<string, number> = {
-            I: 1, II: 2, III: 3, IV: 4, V: 5, VI: 6, VII: 7, VIII: 8, IX: 9
+            I: 1, II: 2, III: 3, IV: 4, V: 5, VI: 6, VII: 7, VIII: 8, IX: 9,
+            X: 10, XI: 11, XII: 12, XIII: 13,
           };
           return periodOrder[range.start] || 0;
         };
@@ -299,8 +301,8 @@ export const AttendanceListView: React.FC = () => {
               onChange={(e) => setFilterPeriod(e.target.value)}
               className="w-full px-2.5 py-1.5 rounded-lg border border-slate-200 text-xs font-medium focus:ring-emerald-500 focus:border-emerald-500 bg-white"
             >
-              <option value="">Semua Jam (I - IX)</option>
-              {MANUAL_PERIOD_CHOICES.map((choice) => (
+              <option value="">Semua Jam Pelajaran</option>
+              {manualPeriodChoices.map((choice) => (
                 <option key={choice.id} value={choice.id}>
                   {choice.label}
                 </option>

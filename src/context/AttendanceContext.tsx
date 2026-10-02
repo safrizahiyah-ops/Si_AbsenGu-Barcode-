@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useMemo } from 'react';
 import {
   AttendanceRecord,
   Teacher,
@@ -7,6 +7,7 @@ import {
   AppSettings,
   ActiveTab,
   PeriodId,
+  PeriodSlot,
 } from '../types';
 import {
   INITIAL_SETTINGS,
@@ -18,6 +19,10 @@ import {
 import {
   VALID_ATTENDANCE_PERIODS,
   PERIOD_IDS,
+  DEFAULT_ALL_PERIOD_SLOTS,
+  buildManualPeriodChoices,
+  ManualPeriodChoice,
+  parseTimeToMinutes,
   parsePeriodString,
 } from '../constants/schedule';
 
@@ -33,6 +38,10 @@ interface AttendanceContextType {
   classes: ClassRoom[];
   subjects: Subject[];
   settings: AppSettings;
+  periodSlots: PeriodSlot[];
+  validAttendancePeriods: PeriodSlot[];
+  manualPeriodChoices: ManualPeriodChoice[];
+  periodIds: PeriodId[];
   activeTab: ActiveTab;
   setActiveTab: (tab: ActiveTab) => void;
   isFormModalOpen: boolean;
@@ -64,6 +73,10 @@ interface AttendanceContextType {
   addSubject: (subject: Omit<Subject, 'id'>) => void;
   updateSubject: (id: string, subject: Partial<Subject>) => void;
   deleteSubject: (id: string) => void;
+  // Periods CRUD
+  addPeriodSlot: (slot: PeriodSlot) => { success: boolean; error?: string };
+  deletePeriodSlot: (id: string) => { success: boolean; error?: string };
+  resetPeriodSlots: () => void;
   updateSettings: (newSettings: Partial<AppSettings>) => void;
   resetToSampleData: () => void;
   exportDataJson: () => void;
@@ -78,6 +91,7 @@ const STORAGE_KEYS = {
   CLASSES: 'dm_madrasah_classes_v1',
   SUBJECTS: 'dm_madrasah_subjects_v1',
   SETTINGS: 'dm_madrasah_settings_v1',
+  PERIOD_SLOTS: 'dm_madrasah_period_slots_v1',
 };
 
 export const AttendanceProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -142,6 +156,20 @@ export const AttendanceProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     return INITIAL_SETTINGS;
   });
 
+  // Custom / Extended Period Slots (allows adding periods up to 13 or beyond)
+  const [periodSlots, setPeriodSlots] = useState<PeriodSlot[]>(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEYS.PERIOD_SLOTS);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      }
+    } catch {
+      // ignore
+    }
+    return DEFAULT_ALL_PERIOD_SLOTS;
+  });
+
   // Navigation & UI states
   const [activeTab, setActiveTab] = useState<ActiveTab>('dashboard');
   const [isFormModalOpen, setIsFormModalOpen] = useState<boolean>(false);
@@ -169,6 +197,57 @@ export const AttendanceProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   useEffect(() => {
     localStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify(settings));
   }, [settings]);
+
+  useEffect(() => {
+    localStorage.setItem(STORAGE_KEYS.PERIOD_SLOTS, JSON.stringify(periodSlots));
+  }, [periodSlots]);
+
+  // Derived period properties
+  const validAttendancePeriods = useMemo(() => {
+    return periodSlots.filter((slot) => !slot.isBreak);
+  }, [periodSlots]);
+
+  const manualPeriodChoices = useMemo(() => {
+    return buildManualPeriodChoices(periodSlots);
+  }, [periodSlots]);
+
+  const periodIds = useMemo(() => {
+    return validAttendancePeriods.map((slot) => slot.code as PeriodId);
+  }, [validAttendancePeriods]);
+
+  // Period slots management
+  const addPeriodSlot = (newSlot: PeriodSlot): { success: boolean; error?: string } => {
+    const code = newSlot.code.trim().toUpperCase();
+    const exists = periodSlots.some(
+      (s) => s.code.toUpperCase() === code || s.id === newSlot.id
+    );
+    if (exists) {
+      const err = `Jam Pelajaran "${code}" sudah terdaftar dalam jadwal!`;
+      showToast(err, 'error');
+      return { success: false, error: err };
+    }
+
+    const updated = [...periodSlots, { ...newSlot, code, id: newSlot.id || code }];
+    updated.sort((a, b) => parseTimeToMinutes(a.startTime) - parseTimeToMinutes(b.startTime));
+    setPeriodSlots(updated);
+    showToast(`Jam Pelajaran ${code} (${newSlot.timeSlotString} WIB) berhasil ditambahkan!`, 'success');
+    return { success: true };
+  };
+
+  const deletePeriodSlot = (id: string): { success: boolean; error?: string } => {
+    const target = periodSlots.find((s) => s.id === id);
+    if (!target) return { success: false, error: 'Jam pelajaran tidak ditemukan' };
+
+    const updated = periodSlots.filter((s) => s.id !== id);
+    setPeriodSlots(updated);
+    showToast(`Jam Pelajaran ${target.code} telah dihapus dari jadwal`, 'info');
+    return { success: true };
+  };
+
+  const resetPeriodSlots = () => {
+    setPeriodSlots(DEFAULT_ALL_PERIOD_SLOTS);
+    showToast('Jadwal jam pelajaran telah dikembalikan ke format standar (Jam I - IX)', 'info');
+  };
 
   const showToast = (
     message: string,
@@ -379,12 +458,14 @@ export const AttendanceProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     localStorage.removeItem(STORAGE_KEYS.CLASSES);
     localStorage.removeItem(STORAGE_KEYS.SUBJECTS);
     localStorage.removeItem(STORAGE_KEYS.SETTINGS);
+    localStorage.removeItem(STORAGE_KEYS.PERIOD_SLOTS);
 
     setRecords(generateInitialAttendanceRecords());
     setTeachers(INITIAL_TEACHERS);
     setClasses(INITIAL_CLASSES);
     setSubjects(INITIAL_SUBJECTS);
     setSettings(INITIAL_SETTINGS);
+    setPeriodSlots(DEFAULT_ALL_PERIOD_SLOTS);
 
     showToast('Data berhasil di-reset ke data contoh awal.', 'info');
   };
@@ -396,6 +477,7 @@ export const AttendanceProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       classes,
       subjects,
       settings,
+      periodSlots,
       exportedAt: new Date().toISOString(),
     };
     const blob = new Blob([JSON.stringify(data, null, 2)], {
@@ -430,6 +512,9 @@ export const AttendanceProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       if (parsed.settings) {
         setSettings((prev) => ({ ...prev, ...parsed.settings }));
       }
+      if (parsed.periodSlots && Array.isArray(parsed.periodSlots)) {
+        setPeriodSlots(parsed.periodSlots);
+      }
       showToast('Data berhasil dipulihkan dari file backup.', 'success');
       return true;
     } catch {
@@ -446,6 +531,10 @@ export const AttendanceProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         classes,
         subjects,
         settings,
+        periodSlots,
+        validAttendancePeriods,
+        manualPeriodChoices,
+        periodIds,
         activeTab,
         setActiveTab,
         isFormModalOpen,
@@ -470,6 +559,9 @@ export const AttendanceProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         addSubject,
         updateSubject,
         deleteSubject,
+        addPeriodSlot,
+        deletePeriodSlot,
+        resetPeriodSlots,
         updateSettings,
         resetToSampleData,
         exportDataJson,
