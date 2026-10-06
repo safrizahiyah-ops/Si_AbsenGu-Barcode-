@@ -73,6 +73,7 @@ interface AttendanceContextType {
   updateClassRoom: (id: string, classroom: Partial<ClassRoom>) => void;
   deleteClassRoom: (id: string) => void;
   addSubject: (subject: Omit<Subject, 'id'>) => void;
+  bulkAddSubjects: (newSubjects: Omit<Subject, 'id'>[], replaceExisting?: boolean) => void;
   updateSubject: (id: string, subject: Partial<Subject>) => void;
   deleteSubject: (id: string) => void;
   // Periods CRUD
@@ -548,6 +549,22 @@ export const AttendanceProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     showToast('Data mata pelajaran berhasil ditambahkan.', 'success');
   };
 
+  const bulkAddSubjects = (newSubjectsData: Omit<Subject, 'id'>[], replaceExisting = false) => {
+    const timestamp = Date.now();
+    const created: Subject[] = newSubjectsData.map((data, idx) => ({
+      ...data,
+      id: `s-${timestamp}-${idx}`,
+    }));
+
+    if (replaceExisting) {
+      setSubjects(created);
+      showToast(`${created.length} data mata pelajaran & jadwal berhasil diperbarui!`, 'success');
+    } else {
+      setSubjects((prev) => [...prev, ...created]);
+      showToast(`${created.length} data mata pelajaran & jadwal berhasil ditambahkan!`, 'success');
+    }
+  };
+
   const updateSubject = (id: string, subData: Partial<Subject>) => {
     setSubjects((prev) =>
       prev.map((s) => (s.id === id ? { ...s, ...subData } : s))
@@ -699,6 +716,7 @@ export const AttendanceProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         updateClassRoom,
         deleteClassRoom,
         addSubject,
+        bulkAddSubjects,
         updateSubject,
         deleteSubject,
         addPeriodSlot,

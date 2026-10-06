@@ -1,14 +1,14 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { Html5Qrcode } from 'html5-qrcode';
 import { useAttendance } from '../context/AttendanceContext';
-import { Teacher, PeriodId, AttendanceStatus } from '../types';
+import { Teacher, PeriodId, AttendanceStatus, Subject } from '../types';
 import { matchTeacherFromBarcode } from '../utils/barcodeUtils';
 import {
-  VALID_ATTENDANCE_PERIODS,
   PERIOD_IDS,
-  MANUAL_PERIOD_CHOICES,
   getPeriodRangeDetails,
   getTodayDateString,
+  getTodaySchoolDay,
+  getCurrentPeriodState,
   ATTENDANCE_STATUS_CONFIG,
 } from '../constants/schedule';
 import {
@@ -19,13 +19,14 @@ import {
   AlertCircle,
   X,
   Keyboard,
-  UserCheck,
   Clock,
   Sparkles,
-  Volume2,
-  ChevronRight,
   School,
   BookOpen,
+  Calendar,
+  Layers,
+  ArrowRight,
+  Info,
 } from 'lucide-react';
 
 interface BarcodeAttendanceScannerModalProps {
@@ -40,13 +41,14 @@ export const BarcodeAttendanceScannerModal: React.FC<BarcodeAttendanceScannerMod
   const {
     teachers,
     classes,
+    subjects,
     settings,
     addAttendanceRecord,
-    records,
     showToast,
-    manualPeriodChoices,
     periodIds,
+    periodSlots,
     validAttendancePeriods,
+    currentTime,
   } = useAttendance();
 
   // Scanner states
@@ -54,20 +56,39 @@ export const BarcodeAttendanceScannerModal: React.FC<BarcodeAttendanceScannerMod
   const [cameraError, setCameraError] = useState<string | null>(null);
   const [manualCode, setManualCode] = useState<string>('');
   const [matchedTeacher, setMatchedTeacher] = useState<Teacher | null>(null);
+  const [detectedSchedule, setDetectedSchedule] = useState<Subject | null>(null);
+
+  // Selected attendance parameters
   const [scannedStatus, setScannedStatus] = useState<AttendanceStatus>('HADIR');
   const [scannedStartPeriod, setScannedStartPeriod] = useState<PeriodId>('I');
   const [scannedEndPeriod, setScannedEndPeriod] = useState<PeriodId>('I');
   const [scannedClass, setScannedClass] = useState<string>('');
+  const [scannedSubject, setScannedSubject] = useState<string>('');
   const [notes, setNotes] = useState<string>('');
   const [autoSubmitMode, setAutoSubmitMode] = useState<boolean>(false);
-  const [recentScanLog, setRecentScanLog] = useState<{ teacherName: string; time: string; status: AttendanceStatus; period: string }[]>([]);
+  const [recentScanLog, setRecentScanLog] = useState<{
+    teacherName: string;
+    subject: string;
+    className: string;
+    time: string;
+    status: AttendanceStatus;
+    period: string;
+  }[]>([]);
 
   const html5QrCodeRef = useRef<Html5Qrcode | null>(null);
   const readerElementId = 'barcode-camera-reader-viewport';
   const manualInputRef = useRef<HTMLInputElement>(null);
 
+  const todayDay = useMemo(() => getTodaySchoolDay(currentTime), [currentTime]);
+  const activePeriodState = useMemo(() => getCurrentPeriodState(currentTime, periodSlots), [currentTime, periodSlots]);
+
+  // Non-break period slots for study
+  const studyPeriodSlots = useMemo(() => {
+    return periodSlots.filter((s) => !s.isBreak);
+  }, [periodSlots]);
+
   // Manual period range calculation
-  const periodRange = React.useMemo(() => {
+  const periodRange = useMemo(() => {
     return getPeriodRangeDetails(scannedStartPeriod, scannedEndPeriod, validAttendancePeriods);
   }, [scannedStartPeriod, scannedEndPeriod, validAttendancePeriods]);
 
@@ -98,30 +119,56 @@ export const BarcodeAttendanceScannerModal: React.FC<BarcodeAttendanceScannerMod
       osc.connect(gain);
       gain.connect(audioCtx.destination);
       osc.type = isSuccess ? 'sine' : 'triangle';
-      osc.frequency.setValueAtTime(isSuccess ? 880 : 330, audioCtx.currentTime); // A5 or E4
+      osc.frequency.setValueAtTime(isSuccess ? 880 : 330, audioCtx.currentTime);
       gain.gain.setValueAtTime(0.15, audioCtx.currentTime);
       gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.15);
       osc.start();
       osc.stop(audioCtx.currentTime + 0.15);
     } catch {
-      // Audio context might be restricted before interaction
+      // Audio context might be restricted
     }
   };
 
-  // Set default class on open (manual period selection preserved)
+  // Set default class & active period on open
   useEffect(() => {
     if (isOpen) {
-      setScannedClass(classes[0]?.name || 'X IPA');
       setMatchedTeacher(null);
+      setDetectedSchedule(null);
       setCameraError(null);
       setManualCode('');
 
-      // Auto-focus manual scanner input for physical barcode gun
+      // Auto pick current active period if available
+      if (activePeriodState.currentSlot && !activePeriodState.currentSlot.isBreak) {
+        setScannedStartPeriod(activePeriodState.currentSlot.id);
+        setScannedEndPeriod(activePeriodState.currentSlot.id);
+      } else {
+        setScannedStartPeriod('I');
+        setScannedEndPeriod('I');
+      }
+
+      setScannedClass(classes[0]?.name || 'X IPA');
+      setScannedSubject(subjects[0]?.name || 'Mata Pelajaran');
+
       setTimeout(() => {
         manualInputRef.current?.focus();
       }, 300);
     }
-  }, [isOpen, classes]);
+  }, [isOpen, classes, subjects, activePeriodState.currentSlot]);
+
+  // Find today's schedules for teacher
+  const teacherTodaySchedules = useMemo(() => {
+    if (!matchedTeacher) return [];
+    return subjects.filter((s) => s.teacherId === matchedTeacher.id && s.day === todayDay);
+  }, [matchedTeacher, subjects, todayDay]);
+
+  // Apply a specific schedule to the scan form
+  const applyScheduleToScan = (sch: Subject) => {
+    setDetectedSchedule(sch);
+    setScannedSubject(sch.name);
+    if (sch.className) setScannedClass(sch.className);
+    if (sch.startPeriod) setScannedStartPeriod(sch.startPeriod);
+    if (sch.endPeriod) setScannedEndPeriod(sch.endPeriod);
+  };
 
   // Handle successful scan match
   const handleBarcodeDetected = (rawText: string) => {
@@ -133,42 +180,107 @@ export const BarcodeAttendanceScannerModal: React.FC<BarcodeAttendanceScannerMod
       setMatchedTeacher(teacher);
       setCameraError(null);
 
-      // If auto-submit mode is active, automatically save attendance as HADIR
+      // Search schedule for this teacher on today's day
+      const todaySchedules = subjects.filter(
+        (s) => s.teacherId === teacher.id && s.day === todayDay
+      );
+
+      const currentSlotId = activePeriodState.currentSlot?.id;
+      let targetSchedule: Subject | undefined;
+
+      // 1. Exact match with active period slot
+      if (currentSlotId) {
+        targetSchedule = todaySchedules.find((s) => {
+          if (s.startPeriod && s.endPeriod) {
+            const startIdx = periodIds.indexOf(s.startPeriod);
+            const endIdx = periodIds.indexOf(s.endPeriod);
+            const currIdx = periodIds.indexOf(currentSlotId);
+            return startIdx !== -1 && endIdx !== -1 && currIdx !== -1 && currIdx >= startIdx && currIdx <= endIdx;
+          }
+          return s.startPeriod === currentSlotId;
+        });
+      }
+
+      // 2. If no exact active period match, pick first schedule today
+      if (!targetSchedule && todaySchedules.length > 0) {
+        targetSchedule = todaySchedules[0];
+      }
+
+      // 3. Fallback to any schedule for this teacher
+      if (!targetSchedule) {
+        targetSchedule = subjects.find((s) => s.teacherId === teacher.id);
+      }
+
+      const targetSubjectName = targetSchedule?.name || teacher.primarySubject || 'Mata Pelajaran';
+      const targetClassName = targetSchedule?.className || classes[0]?.name || 'X IPA';
+      const targetStartP = targetSchedule?.startPeriod || scannedStartPeriod || 'I';
+      const targetEndP = targetSchedule?.endPeriod || targetStartP;
+
+      setDetectedSchedule(targetSchedule || null);
+      setScannedSubject(targetSubjectName);
+      setScannedClass(targetClassName);
+      setScannedStartPeriod(targetStartP);
+      setScannedEndPeriod(targetEndP);
+
+      // Determine initial status based on punctuality
+      let targetStatus: AttendanceStatus = 'HADIR';
+      if (activePeriodState.status === 'in_progress') {
+        const slotStartMins = activePeriodState.currentSlot
+          ? parseInt(activePeriodState.currentSlot.startTime.split(':')[0], 10) * 60 +
+            parseInt(activePeriodState.currentSlot.startTime.split(':')[1], 10)
+          : 0;
+        const currentMins = currentTime.getHours() * 60 + currentTime.getMinutes();
+        if (currentMins - slotStartMins >= 10) {
+          targetStatus = 'TERLAMBAT';
+        }
+      }
+      setScannedStatus(targetStatus);
+
+      // If auto-submit mode is active, automatically save attendance
       if (autoSubmitMode) {
+        const computedRange = getPeriodRangeDetails(targetStartP, targetEndP, validAttendancePeriods);
         const res = addAttendanceRecord({
           date: getTodayDateString(),
-          period: periodRange.periodString,
-          startPeriod: scannedStartPeriod,
-          endPeriod: scannedEndPeriod,
-          timeSlot: periodRange.timeSlotString,
+          period: computedRange.periodString,
+          startPeriod: targetStartP,
+          endPeriod: targetEndP,
+          timeSlot: computedRange.timeSlotString,
           teacherId: teacher.id,
           teacherName: teacher.name,
-          subject: teacher.primarySubject || 'Mata Pelajaran',
-          className: scannedClass || 'X IPA',
-          status: 'HADIR',
-          notes: 'Absensi otomatis scan barcode kartu',
+          subject: targetSubjectName,
+          className: targetClassName,
+          status: targetStatus,
+          notes: targetSchedule
+            ? `Absensi otomatis barcode (Jadwal: ${targetSubjectName} ${targetClassName})`
+            : 'Absensi otomatis scan barcode kartu',
           picketTeacher: settings.currentPicketTeacher,
         });
 
         if (res.success) {
-          showToast(`Berhasil presensi: ${teacher.name} (HADIR Jam ${periodRange.periodString})`, 'success');
+          showToast(
+            `Presensi berhasil: ${teacher.name} (${targetStatus} - ${targetSubjectName} di ${targetClassName})`,
+            'success'
+          );
           setRecentScanLog((prev) => [
             {
               teacherName: teacher.name,
+              subject: targetSubjectName,
+              className: targetClassName,
               time: new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }),
-              status: 'HADIR',
-              period: `Jam ${periodRange.periodString}`,
+              status: targetStatus,
+              period: `Jam ${computedRange.periodString}`,
             },
             ...prev.slice(0, 4),
           ]);
           setMatchedTeacher(null);
+          setDetectedSchedule(null);
         } else {
           showToast(res.error || 'Gagal menyimpan absensi', 'error');
         }
       }
     } else {
       playBeep(false);
-      showToast(`Barcode "${rawText}" tidak cocok dengan data guru terdaftar.`, 'error');
+      showToast(`Barcode "${rawText}" tidak cocok dengan data guru madrasah.`, 'error');
     }
   };
 
@@ -208,9 +320,7 @@ export const BarcodeAttendanceScannerModal: React.FC<BarcodeAttendanceScannerMod
                 handleBarcodeDetected(decodedText);
               }
             },
-            () => {
-              // Frame parse error - ignore
-            }
+            () => {}
           )
           .catch((err) => {
             if (isSubscribed) {
@@ -241,7 +351,7 @@ export const BarcodeAttendanceScannerModal: React.FC<BarcodeAttendanceScannerMod
     };
   }, [isOpen, scannerActive]);
 
-  // Submit manual / hardware barcode scanner input
+  // Submit manual barcode input
   const handleManualSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!manualCode.trim()) return;
@@ -262,19 +372,24 @@ export const BarcodeAttendanceScannerModal: React.FC<BarcodeAttendanceScannerMod
       timeSlot: periodRange.timeSlotString,
       teacherId: matchedTeacher.id,
       teacherName: matchedTeacher.name,
-      subject: matchedTeacher.primarySubject || 'Mata Pelajaran',
+      subject: scannedSubject || matchedTeacher.primarySubject || 'Mata Pelajaran',
       className: scannedClass || 'X IPA',
       status: finalStatus,
       lateMinutes: finalStatus === 'TERLAMBAT' ? 10 : 0,
-      notes: notes.trim() || 'Dicatat via pemindai barcode kartu',
+      notes: notes.trim() || `Presensi barcode kartu (${scannedSubject} - ${scannedClass})`,
       picketTeacher: settings.currentPicketTeacher,
     });
 
     if (result.success) {
-      showToast(`Presensi berhasil: ${matchedTeacher.name} (${finalStatus} Jam ${periodRange.periodString})`, 'success');
+      showToast(
+        `Presensi berhasil: ${matchedTeacher.name} (${finalStatus} - ${scannedSubject} di ${scannedClass})`,
+        'success'
+      );
       setRecentScanLog((prev) => [
         {
           teacherName: matchedTeacher.name,
+          subject: scannedSubject,
+          className: scannedClass,
           time: new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }),
           status: finalStatus,
           period: `Jam ${periodRange.periodString}`,
@@ -282,6 +397,7 @@ export const BarcodeAttendanceScannerModal: React.FC<BarcodeAttendanceScannerMod
         ...prev.slice(0, 4),
       ]);
       setMatchedTeacher(null);
+      setDetectedSchedule(null);
       setNotes('');
       manualInputRef.current?.focus();
     } else {
@@ -301,113 +417,98 @@ export const BarcodeAttendanceScannerModal: React.FC<BarcodeAttendanceScannerMod
               <Scan className="w-5 h-5 text-emerald-200" />
             </div>
             <div>
-              <h3 className="font-extrabold text-base tracking-tight flex items-center gap-2">
-                <span>Pemindai Barcode & QR Presensi Guru</span>
-                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-700 text-emerald-200">
-                  Guru Piket
+              <h3 className="font-extrabold text-base flex items-center gap-2">
+                Scanner Barcode Presensi Guru
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-700 border border-emerald-600 text-emerald-100">
+                  Sinkron Otomatis
                 </span>
               </h3>
               <p className="text-xs text-emerald-200">
-                Pindai kartu barcode guru atau gunakan scanner barcode USB untuk absensi instan
+                Hari ini: <strong>{todayDay}</strong> • {activePeriodState.currentSlot ? `Sedang Berlangsung Jam ${activePeriodState.currentSlot.code}` : 'Luar Jam KBM'}
               </p>
             </div>
           </div>
           <button
             type="button"
             onClick={onClose}
-            className="p-1.5 rounded-lg text-emerald-200 hover:text-white hover:bg-emerald-700/50 transition-colors"
+            className="p-1.5 rounded-xl text-emerald-200 hover:text-white hover:bg-emerald-700/50 transition-colors"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
 
-        {/* Content */}
-        <div className="p-4 sm:p-6 space-y-4 overflow-y-auto">
-          {/* Active Period & Settings Bar (Manual Fitur) */}
-          <div className="bg-slate-50 rounded-2xl border border-slate-200 p-3.5 space-y-2.5 text-xs">
+        {/* Modal Body */}
+        <div className="p-4 sm:p-5 overflow-y-auto space-y-4">
+          {/* Quick Config Bar */}
+          <div className="bg-slate-50 p-3 rounded-2xl border border-slate-200 space-y-2">
             <div className="flex items-center justify-between">
-              <span className="font-bold text-slate-700 flex items-center gap-1.5">
+              <span className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
                 <Clock className="w-4 h-4 text-emerald-700" />
-                Pengaturan Jam Absensi (Manual)
+                Pengaturan Jam Presensi Berjalan:
               </span>
-              <span className="text-[11px] font-semibold text-emerald-800 bg-emerald-100 px-2 py-0.5 rounded-md">
-                Jam {periodRange.periodString} ({periodRange.timeSlotString} WIB)
-              </span>
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
-              {/* Mulai Jam */}
-              <div>
-                <label className="block text-[11px] font-bold text-slate-600 mb-1">Mulai Jam:</label>
-                <select
-                  value={scannedStartPeriod}
-                  onChange={(e) => handleStartPeriodChange(e.target.value as PeriodId)}
-                  className="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded-lg font-bold text-slate-800 text-xs focus:ring-2 focus:ring-emerald-500"
-                >
-                  {manualPeriodChoices.map((choice) => (
-                    <option key={choice.id} value={choice.id}>
-                      {choice.label}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              {/* Sampai Jam */}
-              <div>
-                <label className="block text-[11px] font-bold text-slate-600 mb-1">Sampai Jam:</label>
-                <select
-                  value={scannedEndPeriod}
-                  onChange={(e) => handleEndPeriodChange(e.target.value as PeriodId)}
-                  className="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded-lg font-bold text-slate-800 text-xs focus:ring-2 focus:ring-emerald-500"
-                >
-                  {manualPeriodChoices.map((choice) => (
-                    <option key={choice.id} value={choice.id}>
-                      {choice.label}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              {/* Kelas */}
-              <div>
-                <label className="block text-[11px] font-bold text-slate-600 mb-1">Kelas:</label>
-                <select
-                  value={scannedClass}
-                  onChange={(e) => setScannedClass(e.target.value)}
-                  className="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded-lg font-bold text-slate-800 text-xs focus:ring-2 focus:ring-emerald-500"
-                >
-                  {classes.map((c) => (
-                    <option key={c.id} value={c.name}>
-                      {c.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            </div>
-
-            <div className="flex items-center justify-between pt-1 border-t border-slate-200">
-              <label className="flex items-center gap-2 cursor-pointer select-none bg-emerald-50 px-2.5 py-1 rounded-xl border border-emerald-200">
+              <label className="flex items-center gap-2 cursor-pointer select-none bg-emerald-100/70 hover:bg-emerald-100 px-2.5 py-1 rounded-xl border border-emerald-300 transition-colors">
                 <input
                   type="checkbox"
                   checked={autoSubmitMode}
                   onChange={(e) => setAutoSubmitMode(e.target.checked)}
                   className="w-3.5 h-3.5 accent-emerald-700 rounded cursor-pointer"
                 />
-                <span className="font-bold text-emerald-800 text-xs flex items-center gap-1">
-                  <Sparkles className="w-3.5 h-3.5" />
-                  Mode Cepat (Auto Hadir)
+                <span className="font-bold text-emerald-900 text-xs flex items-center gap-1">
+                  <Sparkles className="w-3.5 h-3.5 text-emerald-700" />
+                  Mode Cepat (Auto Simpan Hadir)
                 </span>
               </label>
+            </div>
 
-              <span className="text-[11px] text-slate-500">
-                {periodRange.durationPeriods} Jam Pelajaran
+            <div className="grid grid-cols-2 gap-2 text-xs">
+              <div>
+                <label className="block text-[10px] font-bold text-slate-500 uppercase mb-0.5">
+                  Mulai Jam
+                </label>
+                <select
+                  value={scannedStartPeriod}
+                  onChange={(e) => handleStartPeriodChange(e.target.value as PeriodId)}
+                  className="w-full px-2.5 py-1.5 rounded-xl border border-slate-300 bg-white font-bold text-slate-800 text-xs"
+                >
+                  {studyPeriodSlots.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      Jam {s.code} ({s.startTime})
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-[10px] font-bold text-slate-500 uppercase mb-0.5">
+                  Sampai Jam
+                </label>
+                <select
+                  value={scannedEndPeriod}
+                  onChange={(e) => handleEndPeriodChange(e.target.value as PeriodId)}
+                  className="w-full px-2.5 py-1.5 rounded-xl border border-slate-300 bg-white font-bold text-slate-800 text-xs"
+                >
+                  {studyPeriodSlots.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      Jam {s.code} ({s.endTime})
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-between text-[11px] text-slate-500 pt-1 border-t border-slate-200">
+              <span className="font-mono">
+                Rentang: <strong>{periodRange.timeSlotString} WIB</strong>
+              </span>
+              <span className="font-semibold text-emerald-800">
+                Terhitung: {periodRange.durationPeriods} Jam Pelajaran
               </span>
             </div>
           </div>
 
           {/* Teacher Matched Result Card (If scanned) */}
           {matchedTeacher ? (
-            <div className="bg-gradient-to-r from-emerald-50 to-teal-50 border-2 border-emerald-400 rounded-2xl p-4 shadow-sm space-y-4 animate-in fade-in zoom-in-95">
+            <div className="bg-gradient-to-r from-emerald-50 to-teal-50 border-2 border-emerald-500 rounded-2xl p-4 shadow-sm space-y-4 animate-in fade-in zoom-in-95">
               <div className="flex items-start justify-between">
                 <div className="flex items-center gap-3">
                   <div className="w-12 h-12 rounded-2xl bg-emerald-700 text-white flex items-center justify-center font-black text-lg shadow-sm">
@@ -421,19 +522,107 @@ export const BarcodeAttendanceScannerModal: React.FC<BarcodeAttendanceScannerMod
                       {matchedTeacher.name}
                     </h4>
                     <p className="text-xs text-slate-600">
-                      NIP: <span className="font-mono font-bold">{matchedTeacher.nip || '-'}</span> • Mapel: <span className="font-semibold text-emerald-800">{matchedTeacher.primarySubject || '-'}</span>
+                      NIP: <span className="font-mono font-bold">{matchedTeacher.nip || '-'}</span>
                     </p>
                   </div>
                 </div>
 
                 <button
                   type="button"
-                  onClick={() => setMatchedTeacher(null)}
+                  onClick={() => {
+                    setMatchedTeacher(null);
+                    setDetectedSchedule(null);
+                  }}
                   className="p-1 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-200/50"
                   title="Batalkan"
                 >
                   <X className="w-4 h-4" />
                 </button>
+              </div>
+
+              {/* Automatic Schedule Detection Banner */}
+              <div className="p-3 bg-white rounded-xl border border-emerald-300 shadow-xs space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-black text-emerald-900 flex items-center gap-1.5 uppercase tracking-wide">
+                    <Sparkles className="w-4 h-4 text-emerald-600" />
+                    Jadwal Terbaca Otomatis (Hari {todayDay}):
+                  </span>
+                  {detectedSchedule ? (
+                    <span className="px-2 py-0.5 bg-emerald-100 text-emerald-800 text-[10px] font-bold rounded-md">
+                      Sesuai Jadwal
+                    </span>
+                  ) : (
+                    <span className="px-2 py-0.5 bg-amber-100 text-amber-800 text-[10px] font-bold rounded-md">
+                      Jadwal Mandiri
+                    </span>
+                  )}
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-500 uppercase mb-0.5">
+                      Mata Pelajaran:
+                    </label>
+                    <select
+                      value={scannedSubject}
+                      onChange={(e) => setScannedSubject(e.target.value)}
+                      className="w-full px-2.5 py-1.5 rounded-lg border border-slate-300 font-bold text-slate-800 bg-emerald-50/30 text-xs"
+                    >
+                      {subjects.map((sub) => (
+                        <option key={sub.id} value={sub.name}>
+                          {sub.name} {sub.className ? `(${sub.className})` : ''}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-500 uppercase mb-0.5">
+                      Kelas / Rombel:
+                    </label>
+                    <select
+                      value={scannedClass}
+                      onChange={(e) => setScannedClass(e.target.value)}
+                      className="w-full px-2.5 py-1.5 rounded-lg border border-slate-300 font-bold text-slate-800 bg-emerald-50/30 text-xs"
+                    >
+                      {classes.map((cls) => (
+                        <option key={cls.id} value={cls.name}>
+                          {cls.name} ({cls.level})
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+
+                {/* If teacher has other schedules today, show quick-switch pills */}
+                {teacherTodaySchedules.length > 1 && (
+                  <div className="pt-2 border-t border-slate-100">
+                    <span className="text-[10px] font-bold text-slate-500 block mb-1">
+                      Pilihan Jadwal Mengajar Guru Hari Ini ({teacherTodaySchedules.length}):
+                    </span>
+                    <div className="flex flex-wrap gap-1.5">
+                      {teacherTodaySchedules.map((sch) => {
+                        const isCurrent =
+                          scannedSubject === sch.name && scannedClass === sch.className;
+                        return (
+                          <button
+                            key={sch.id}
+                            type="button"
+                            onClick={() => applyScheduleToScan(sch)}
+                            className={`px-2.5 py-1 rounded-lg text-[11px] font-bold border transition-colors flex items-center gap-1 ${
+                              isCurrent
+                                ? 'bg-emerald-700 text-white border-emerald-700 shadow-xs'
+                                : 'bg-slate-100 hover:bg-emerald-100 text-slate-700 border-slate-300'
+                            }`}
+                          >
+                            <span>{sch.name}</span>
+                            <span className="opacity-80">({sch.className} • Jam {sch.periodString})</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
               </div>
 
               {/* Status Action Buttons */}
@@ -473,12 +662,12 @@ export const BarcodeAttendanceScannerModal: React.FC<BarcodeAttendanceScannerMod
                   placeholder="Keterangan tambahan (opsional)..."
                   value={notes}
                   onChange={(e) => setNotes(e.target.value)}
-                  className="flex-1 px-3 py-1.5 rounded-xl border border-slate-300 text-xs bg-white"
+                  className="flex-1 px-3 py-2 rounded-xl border border-slate-300 text-xs bg-white"
                 />
                 <button
                   type="button"
                   onClick={() => handleConfirmAttendance()}
-                  className="px-4 py-2 bg-emerald-700 hover:bg-emerald-800 text-white font-bold text-xs rounded-xl shadow-md transition-colors flex items-center gap-1.5"
+                  className="px-5 py-2.5 bg-emerald-700 hover:bg-emerald-800 text-white font-bold text-xs rounded-xl shadow-md transition-colors flex items-center gap-1.5"
                 >
                   <CheckCircle2 className="w-4 h-4" />
                   <span>Simpan Presensi</span>
@@ -507,7 +696,7 @@ export const BarcodeAttendanceScannerModal: React.FC<BarcodeAttendanceScannerMod
                       <div className="w-full h-0.5 bg-emerald-400 shadow-[0_0_8px_#34d399] animate-bounce duration-1000 mt-28" />
                     </div>
                     <span className="text-[11px] font-bold text-emerald-200 bg-slate-900/80 px-3 py-1 rounded-full mt-3 backdrop-blur-xs">
-                      Arahkan barcode / QR guru ke dalam kotak
+                      Arahkan kartu barcode guru ke kamera
                     </span>
                   </div>
                 )}
@@ -557,79 +746,50 @@ export const BarcodeAttendanceScannerModal: React.FC<BarcodeAttendanceScannerMod
                 type="text"
                 value={manualCode}
                 onChange={(e) => setManualCode(e.target.value)}
-                placeholder="Scan dengan Barcode Scanner USB atau ketik kode (contoh: DM-GURU-T-1 atau NIP)..."
-                className="flex-1 px-3.5 py-2 rounded-xl border border-slate-300 font-mono text-xs focus:ring-2 focus:ring-emerald-500"
+                placeholder="Contoh: DM-19800315... atau ketik NIP / nama guru..."
+                className="flex-1 px-3.5 py-2.5 rounded-xl border border-slate-300 focus:ring-2 focus:ring-emerald-500 text-sm font-mono"
               />
               <button
                 type="submit"
-                className="px-4 py-2 bg-emerald-700 hover:bg-emerald-800 text-white font-bold text-xs rounded-xl shadow-xs transition-colors whitespace-nowrap"
+                className="px-5 py-2.5 bg-emerald-700 hover:bg-emerald-800 text-white font-bold text-xs rounded-xl shadow-md transition-colors"
               >
-                Pindai / Cari
+                Cari & Presensi
               </button>
             </div>
           </form>
 
-          {/* Quick Select from Teacher List fallback */}
-          <div className="border-t border-slate-100 pt-3">
-            <details className="group text-xs">
-              <summary className="cursor-pointer font-bold text-slate-600 hover:text-emerald-700 list-none flex items-center justify-between">
-                <span className="flex items-center gap-1.5">
-                  <UserCheck className="w-4 h-4 text-slate-500" />
-                  Atau klik nama dewan guru secara langsung ({teachers.length} guru)
-                </span>
-                <ChevronRight className="w-4 h-4 transition-transform group-open:rotate-90 text-slate-400" />
-              </summary>
-              <div className="mt-2.5 max-h-36 overflow-y-auto grid grid-cols-1 sm:grid-cols-2 gap-1.5 p-1 bg-slate-50 rounded-xl border border-slate-200">
-                {teachers.map((t) => (
-                  <button
-                    key={t.id}
-                    type="button"
-                    onClick={() => handleBarcodeDetected(`DM-GURU-${t.id}`)}
-                    className="text-left p-2 rounded-lg bg-white hover:bg-emerald-50 border border-slate-200 hover:border-emerald-300 text-slate-800 transition-all flex items-center justify-between"
-                  >
-                    <span className="font-bold truncate">{t.name}</span>
-                    <span className="text-[10px] font-mono text-slate-500">{t.id}</span>
-                  </button>
-                ))}
-              </div>
-            </details>
-          </div>
-
-          {/* Recent Scan History Feed */}
+          {/* Recent Scanned Log Table */}
           {recentScanLog.length > 0 && (
-            <div className="bg-slate-50 rounded-2xl p-3 border border-slate-200 space-y-1.5">
-              <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">
-                Presensi yang Baru Saja Dipindai:
+            <div className="space-y-2 pt-2 border-t border-slate-100">
+              <span className="text-[11px] font-bold text-slate-600 uppercase tracking-wider block">
+                Presensi Berhasil Baru Saja:
               </span>
-              <div className="divide-y divide-slate-200 text-xs">
-                {recentScanLog.map((log, idx) => (
-                  <div key={idx} className="py-1.5 flex items-center justify-between">
-                    <span className="font-bold text-slate-800">{log.teacherName}</span>
+              <div className="space-y-1.5">
+                {recentScanLog.map((log, i) => (
+                  <div
+                    key={i}
+                    className="p-2.5 rounded-xl bg-slate-50 border border-slate-200 flex items-center justify-between text-xs animate-in fade-in"
+                  >
                     <div className="flex items-center gap-2">
-                      <span className="text-slate-500 font-mono text-[10px]">{log.time}</span>
-                      <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800">
-                        {log.status} ({log.period})
+                      <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                      <div>
+                        <span className="font-bold text-slate-800">{log.teacherName}</span>
+                        <span className="text-slate-500 text-[11px] ml-1.5">
+                          ({log.subject} - {log.className} • {log.period})
+                        </span>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="px-2 py-0.5 rounded-md font-bold text-[10px] bg-emerald-100 text-emerald-800">
+                        {log.status}
                       </span>
+                      <span className="font-mono text-[11px] text-slate-400">{log.time}</span>
                     </div>
                   </div>
                 ))}
               </div>
             </div>
           )}
-        </div>
-
-        {/* Footer */}
-        <div className="px-5 py-3 bg-slate-50 border-t border-slate-200 flex items-center justify-between">
-          <span className="text-xs text-slate-500">
-            Sistem Barcode Otomatis • MA Darul Mahfudz
-          </span>
-          <button
-            type="button"
-            onClick={onClose}
-            className="px-5 py-2 rounded-xl bg-slate-200 hover:bg-slate-300 text-slate-800 font-bold text-xs transition-colors"
-          >
-            Tutup Pemindai
-          </button>
         </div>
       </div>
     </div>

@@ -594,6 +594,16 @@ export const INDONESIAN_DAYS = [
   'Sabtu',
 ];
 
+export const SCHOOL_DAYS = ['Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'] as const;
+export type SchoolDay = (typeof SCHOOL_DAYS)[number];
+
+export function getTodaySchoolDay(dateInput: Date | string = new Date()): string {
+  const d = typeof dateInput === 'string' ? new Date(dateInput + 'T00:00:00') : dateInput;
+  if (isNaN(d.getTime())) return 'Senin';
+  const dayName = INDONESIAN_DAYS[d.getDay()];
+  return dayName === 'Minggu' ? 'Senin' : dayName;
+}
+
 export const INDONESIAN_MONTHS = [
   'Januari',
   'Februari',

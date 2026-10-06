@@ -77,6 +77,15 @@ export interface Subject {
   code: string;
   name: string;
   category: 'Pendidikan Agama Islam' | 'Umum' | 'Muatan Lokal';
+  teacherId?: string;
+  teacherName?: string;
+  day?: 'Senin' | 'Selasa' | 'Rabu' | 'Kamis' | 'Jumat' | 'Sabtu' | string;
+  startPeriod?: PeriodId;
+  endPeriod?: PeriodId;
+  periodString?: string;
+  timeSlotString?: string;
+  classId?: string;
+  className?: string;
 }
 
 export interface AppSettings {

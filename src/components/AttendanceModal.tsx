@@ -9,6 +9,7 @@ import {
   parsePeriodString,
   ATTENDANCE_STATUS_CONFIG,
   getTodayDateString,
+  getTodaySchoolDay,
   formatIndonesianDateShort,
 } from '../constants/schedule';
 import { X, Search, Check, AlertTriangle, User, BookOpen, School, Clock, Calendar, CheckCircle2, Scan, ArrowRight } from 'lucide-react';
@@ -152,8 +153,18 @@ export const AttendanceModal: React.FC = () => {
     setTeacherSearch(t.name);
     setIsTeacherDropdownOpen(false);
 
-    // Pre-fill subject if currently empty or matching previous
-    if (t.primarySubject) {
+    // Look for teacher's schedule on selected date's day of week
+    const targetDay = getTodaySchoolDay(date);
+    const teacherSchedule =
+      subjects.find((s) => s.teacherId === t.id && s.day === targetDay) ||
+      subjects.find((s) => s.teacherId === t.id);
+
+    if (teacherSchedule) {
+      setSubject(teacherSchedule.name);
+      if (teacherSchedule.className) setClassName(teacherSchedule.className);
+      if (teacherSchedule.startPeriod) setStartPeriod(teacherSchedule.startPeriod);
+      if (teacherSchedule.endPeriod) setEndPeriod(teacherSchedule.endPeriod);
+    } else if (t.primarySubject) {
       setSubject(t.primarySubject);
     }
   };
